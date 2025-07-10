@@ -81,10 +81,24 @@
           keyList.forEach(key => {
             const point = data[key]?.[0];
             if (point) {
-              const value = point.value;
+              const value = parseFloat(point.value);
               const ts = point.ts;
               const el = document.getElementById(key);
-              if (el) el.innerText = value;
+              if (el) {
+                el.innerText = value;
+
+                // 🎨 Apply cell background color
+                if (value > 90) {
+                  el.style.backgroundColor = "#f44336"; // red
+                  el.style.color = "#fff";
+                } else if (value > 50) {
+                  el.style.backgroundColor = "#ffeb3b"; // yellow
+                  el.style.color = "#000";
+                } else {
+                  el.style.backgroundColor = "";
+                  el.style.color = "";
+                }
+              }
               if (ts > latestTs) latestTs = ts;
             }
           });
@@ -106,25 +120,28 @@
       const headerRow = document.querySelector("thead tr");
       const rows = document.querySelectorAll("tbody tr");
 
-      // Rebuild header row
       const newHeader = ['<th>Attribute</th>'];
+      const newCols = rows.map(() => []);
+
       order.forEach(machine => {
         newHeader.push(`<th id="header-${machine}">Machine ${machine[1]}</th>`);
       });
-      headerRow.innerHTML = newHeader.join("");
 
-      // Rebuild each row
-      rows.forEach((row, index) => {
-        const labelCell = row.children[0].outerHTML;
-        const newCells = [labelCell];
+      rows.forEach((row, rIdx) => {
+        const attrCell = row.children[0].outerHTML;
+        newCols[rIdx].push(attrCell); // Attribute label
         order.forEach(machine => {
-          const key = machines[machine][index];
+          const key = machines[machine][rIdx];
           const cell = document.getElementById(key);
           if (cell) {
-            newCells.push(`<td id="${key}">${cell.innerText}</td>`);
+            newCols[rIdx].push(`<td id="${key}" style="${cell.getAttribute('style') ?? ''}">${cell.innerText}</td>`);
           }
         });
-        row.innerHTML = newCells.join("");
+      });
+
+      headerRow.innerHTML = newHeader.join("");
+      rows.forEach((row, idx) => {
+        row.innerHTML = newCols[idx].join("");
       });
     }
 
