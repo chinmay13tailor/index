@@ -1,218 +1,143 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <title>Pareto Wise Machine Collumn Based On Alerts</title>
+<head><title>Machine Telemetry Table</title>
   <style>
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    th, td {
-      border: 1px solid #ddd;
-      padding: 10px;
-      text-align: center;
-    }
-    th {
-      background-color: #f0f0f0;
-    }
-    .bell {
-      color: red;
-      cursor: pointer;
-      margin-left: 5px;
-    }
+    table { width:100%; border-collapse:collapse; }
+    th, td { border:1px solid #ddd; padding:10px; text-align:center; }
+    th { background:#f0f0f0; }
+    .bell { color:red; cursor:pointer; margin-left:5px; }
   </style>
 </head>
 <body>
-  <h2>Pareto Wise Machine Collumn Based On Alerts</h2>
+  <h2>Machine Telemetry Table</h2>
   <table>
-    <thead>
-      <tr id="header-row">
-        <th>Attribute</th>
-        <th id="header-M1">Machine 1</th>
-        <th id="header-M2">Machine 2</th>
-        <th id="header-M3">Machine 3</th>
-      </tr>
-    </thead>
+    <thead><tr id="header-row">
+      <th>Attribute</th>
+      <th id="header-M1">Machine 1</th>
+      <th id="header-M2">Machine 2</th>
+      <th id="header-M3">Machine 3</th>
+    </tr></thead>
     <tbody>
-      <tr>
-        <td>A1</td>
-        <td id="M1_A1">--</td>
-        <td id="M2_A1">--</td>
-        <td id="M3_A1">--</td>
-      </tr>
-      <tr>
-        <td>A2</td>
-        <td id="M1_A2">--</td>
-        <td id="M2_A2">--</td>
-        <td id="M3_A2">--</td>
-      </tr>
-      <tr>
-        <td>A3</td>
-        <td id="M1_A3">--</td>
-        <td id="M2_A3">--</td>
-        <td id="M3_A3">--</td>
-      </tr>
+      <tr><td>A1</td><td id="M1_A1">--</td><td id="M2_A1">--</td><td id="M3_A1">--</td></tr>
+      <tr><td>A2</td><td id="M1_A2">--</td><td id="M2_A2">--</td><td id="M3_A2">--</td></tr>
+      <tr><td>A3</td><td id="M1_A3">--</td><td id="M2_A3">--</td><td id="M3_A3">--</td></tr>
     </tbody>
   </table>
 
   <script>
-    window.onload = function () {
+    window.onload = function() {
       const params = new URLSearchParams(window.location.search);
       const jwt = params.get("token");
-
       const deviceId = "1e101ee0-5bd5-11f0-9d02-c191323b4da2";
       const baseUrl = "https://thingsboard.cloud";
-
       const machines = {
-        "M1": ["M1_A1", "M1_A2", "M1_A3"],
-        "M2": ["M2_A1", "M2_A2", "M2_A3"],
-        "M3": ["M3_A1", "M3_A2", "M3_A3"]
+        "M1":["M1_A1","M1_A2","M1_A3"],
+        "M2":["M2_A1","M2_A2","M2_A3"],
+        "M3":["M3_A1","M3_A2","M3_A3"]
       };
 
       const alertState = {
-        "M1": { active: false, acknowledged: false },
-        "M2": { active: false, acknowledged: false },
-        "M3": { active: false, acknowledged: false }
+        "M1":{ active:false, acknowledged:false },
+        "M2":{ active:false, acknowledged:false },
+        "M3":{ active:false, acknowledged:false }
       };
+      const alertQueue = []; // FIFO: newest alert at front
 
-      function fetchTelemetry() {
+      function fetchTelemetry(){
         const keys = Object.values(machines).flat();
-        const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`;
-
-        fetch(url, {
-          headers: { "X-Authorization": `Bearer ${jwt}` }
+        fetch(`${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`, {
+          headers:{ "X-Authorization":`Bearer ${jwt}` }
         })
-        .then(res => res.json())
-        .then(data => {
-          const updateTimes = {};
-
-          Object.entries(machines).forEach(([machine, keyList]) => {
-            let latestTs = 0;
-            let overLimit = false;
-
-            keyList.forEach(key => {
-              const point = data[key]?.[0];
-              if (point) {
-                const value = parseFloat(point.value);
-                const ts = point.ts;
-                const el = document.getElementById(key);
-
-                if (el) {
-                  el.innerText = value;
-
-                  if (value > 90) {
-                    el.style.backgroundColor = "#f44336";
-                    el.style.color = "#fff";
-                    overLimit = true;
-                  } else if (value > 50) {
-                    el.style.backgroundColor = "#ffeb3b";
-                    el.style.color = "#000";
-                  } else {
-                    el.style.backgroundColor = "";
-                    el.style.color = "";
-                  }
+        .then(res=>res.json())
+        .then(data=>{
+          Object.entries(machines).forEach(([m, keys])=>{
+            let hasAlert=false, latestTs=0;
+            keys.forEach(k=>{
+              const p=data[k]?.[0];
+              if(p){
+                const v=parseFloat(p.value), el=document.getElementById(k);
+                if(el){
+                  el.innerText=v;
+                  el.style.backgroundColor = v>90?"#f44336":v>50?"#ffeb3b":"";
+                  el.style.color = v>90?"#fff":v>50?"#000":"";
                 }
-
-                if (ts > latestTs) latestTs = ts;
+                if(p.ts>latestTs) latestTs=p.ts;
+                if(v>90) hasAlert=true;
               }
             });
 
-            // ✅ Fixed logic
-            if (overLimit) {
-              if (!alertState[machine].acknowledged) {
-                alertState[machine].active = true;
-              } else {
-                alertState[machine].active = false;
+            // ALERT EVENT HANDLING
+            if(hasAlert){
+              if(!alertState[m].active){
+                alertState[m].active=true;
+                alertState[m].acknowledged=false;
+                alertQueue.unshift(m);
               }
-            } else {
-              alertState[machine].active = false;
-              alertState[machine].acknowledged = false;
             }
+            alertState[m].active = hasAlert;
 
-            updateTimes[machine] = latestTs;
+            if(!hasAlert){
+              const idx=alertQueue.indexOf(m);
+              if(idx>=0) alertQueue.splice(idx,1);
+              alertState[m].active=false;
+              alertState[m].acknowledged=false;
+            }
           });
 
-          const sorted = Object.entries(updateTimes)
-            .sort((a, b) => b[1] - a[1])
-            .map(([m]) => m);
-
-          setTimeout(() => reorderColumns(sorted), 100);
+          updateDisplay();
         })
-        .catch(err => {
-          console.error("Telemetry fetch error:", err);
-        });
+        .catch(console.error);
       }
 
-      function acknowledgeAlert(machine) {
-        alertState[machine].active = false;
-        alertState[machine].acknowledged = true;
-        updateHeaderBell(machine);
+      function acknowledgeAlert(m){
+        const idx=alertQueue.indexOf(m);
+        if(idx>=0) alertQueue.splice(idx,1);
+        alertState[m].acknowledged=true;
+        alertState[m].active=false;
+        updateDisplay();
       }
 
-      function updateHeaderBell(machine) {
-        const th = document.getElementById(`header-${machine}`);
-        if (!th) return;
+      function updateDisplay(){
+        // Header
+        const head=document.getElementById("header-row");
+        const newHead=document.createElement("tr");
+        newHead.id="header-row";
+        newHead.appendChild(document.createElement("th")).innerText="Attribute";
 
-        th.innerHTML = `Machine ${machine[1]}`;
-        if (alertState[machine].active && !alertState[machine].acknowledged) {
-          const bell = document.createElement("span");
-          bell.className = "bell";
-          bell.innerText = "🔔";
-          bell.title = "Click to acknowledge";
-          bell.addEventListener("click", () => acknowledgeAlert(machine));
-          th.appendChild(bell);
-        }
-      }
+        // Build column order: alerts first
+        const order = [...alertQueue];
+        ["M1","M2","M3"].forEach(m=>{ if(!order.includes(m)) order.push(m); });
 
-      function reorderColumns(order) {
-        const headerRow = document.getElementById("header-row");
-        const rows = document.querySelectorAll("tbody tr");
-
-        const newHeader = document.createElement("tr");
-        const labelTh = document.createElement("th");
-        labelTh.innerText = "Attribute";
-        newHeader.appendChild(labelTh);
-
-        order.forEach(machine => {
-          const th = document.createElement("th");
-          th.id = `header-${machine}`;
-          th.innerText = `Machine ${machine[1]}`;
-
-          if (alertState[machine].active && !alertState[machine].acknowledged) {
-            const bell = document.createElement("span");
-            bell.className = "bell";
-            bell.innerText = "🔔";
-            bell.title = "Click to acknowledge";
-            bell.addEventListener("click", () => acknowledgeAlert(machine));
+        order.forEach(m=>{
+          const th=document.createElement("th");
+          th.id=`header-${m}`;
+          th.innerText="Machine "+m[1];
+          if(alertState[m].active && !alertState[m].acknowledged){
+            const bell=document.createElement("span");
+            bell.className="bell";
+            bell.innerText="🔔";
+            bell.onclick=()=>acknowledgeAlert(m);
             th.appendChild(bell);
           }
-
-          newHeader.appendChild(th);
+          newHead.appendChild(th);
         });
+        head.replaceWith(newHead);
 
-        headerRow.replaceWith(newHeader);
-        newHeader.id = "header-row";
-
-        rows.forEach((row, i) => {
-          const newRow = document.createElement("tr");
-          newRow.appendChild(row.children[0].cloneNode(true));
-          order.forEach(machine => {
-            const key = machines[machine][i];
-            const cell = document.getElementById(key);
-            if (cell) {
-              const newCell = document.createElement("td");
-              newCell.id = key;
-              newCell.innerText = cell.innerText;
-              newCell.setAttribute("style", cell.getAttribute("style") || "");
-              newRow.appendChild(newCell);
-            }
+        // Reorder rows
+        document.querySelectorAll("tbody tr").forEach((r,i)=>{
+          const tr=document.createElement("tr");
+          tr.appendChild(r.children[0].cloneNode(true));
+          order.forEach(m=>{
+            const id=machines[m][i];
+            const c=document.getElementById(id);
+            tr.appendChild(c.cloneNode(true));
           });
-          row.replaceWith(newRow);
+          r.replaceWith(tr);
         });
       }
 
       fetchTelemetry();
-      setInterval(fetchTelemetry, 10000);
+      setInterval(fetchTelemetry,10000);
     };
   </script>
 </body>
