@@ -29,10 +29,63 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td>A1</td><td>--</td><td>--</td><td>--</td></tr>
-      <tr><td>A2</td><td>--</td><td>--</td><td>--</td></tr>
-      <tr><td>A3</td><td>--</td><td>--</td><td>--</td></tr>
+      <tr>
+        <td>A1</td>
+        <td id="M1_A1">--</td>
+        <td id="M2_A1">--</td>
+        <td id="M3_A1">--</td>
+      </tr>
+      <tr>
+        <td>A2</td>
+        <td id="M1_A2">--</td>
+        <td id="M2_A2">--</td>
+        <td id="M3_A2">--</td>
+      </tr>
+      <tr>
+        <td>A3</td>
+        <td id="M1_A3">--</td>
+        <td id="M2_A3">--</td>
+        <td id="M3_A3">--</td>
+      </tr>
     </tbody>
   </table>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const jwt = params.get("token");
+
+    const deviceId = "1e101ee0-5bd5-11f0-9d02-c191323b4da2";
+    const baseUrl = "https://thingsboard.cloud";
+
+    const keys = [
+      "M1_A1", "M1_A2", "M1_A3",
+      "M2_A1", "M2_A2", "M2_A3",
+      "M3_A1", "M3_A2", "M3_A3"
+    ];
+
+    function fetchTelemetry() {
+      const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`;
+
+      fetch(url, {
+        headers: {
+          "X-Authorization": `Bearer ${jwt}`
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        keys.forEach(key => {
+          const value = data[key]?.[0]?.value ?? "--";
+          const el = document.getElementById(key);
+          if (el) el.innerText = value;
+        });
+      })
+      .catch(err => {
+        console.error("Telemetry fetch error:", err);
+      });
+    }
+
+    fetchTelemetry();
+    setInterval(fetchTelemetry, 10000); // auto-refresh every 10 seconds
+  </script>
 </body>
 </html>
