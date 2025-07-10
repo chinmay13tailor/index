@@ -50,103 +50,102 @@
     </tbody>
   </table>
 
-  <script>
-    const params = new URLSearchParams(window.location.search);
-    const jwt = params.get("token");
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const jwt = params.get("token");
 
-    const deviceId = "1e101ee0-5bd5-11f0-9d02-c191323b4da2";
-    const baseUrl = "https://thingsboard.cloud";
+  const deviceId = "1e101ee0-5bd5-11f0-9d02-c191323b4da2";
+  const baseUrl = "https://thingsboard.cloud";
 
-    const machines = {
-      "M1": ["M1_A1", "M1_A2", "M1_A3"],
-      "M2": ["M2_A1", "M2_A2", "M2_A3"],
-      "M3": ["M3_A1", "M3_A2", "M3_A3"]
-    };
+  const machines = {
+    "M1": ["M1_A1", "M1_A2", "M1_A3"],
+    "M2": ["M2_A1", "M2_A2", "M2_A3"],
+    "M3": ["M3_A1", "M3_A2", "M3_A3"]
+  };
 
-    function fetchTelemetry() {
-      const keys = Object.values(machines).flat();
-      const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`;
+  function fetchTelemetry() {
+    const keys = Object.values(machines).flat();
+    const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`;
 
-      fetch(url, {
-        headers: {
-          "X-Authorization": `Bearer ${jwt}`
-        }
-      })
-      .then(res => res.json())
-      .then(data => {
-        const updateTimes = {};
+    fetch(url, {
+      headers: {
+        "X-Authorization": `Bearer ${jwt}`
+      }
+    })
+    .then(res => res.json())
+    .then(data => {
+      const updateTimes = {};
 
-        Object.entries(machines).forEach(([machine, keyList]) => {
-          let latestTs = 0;
-          keyList.forEach(key => {
-            const point = data[key]?.[0];
-            if (point) {
-              const value = parseFloat(point.value);
-              const ts = point.ts;
-              const el = document.getElementById(key);
-              if (el) {
-                el.innerText = value;
+      Object.entries(machines).forEach(([machine, keyList]) => {
+        let latestTs = 0;
+        keyList.forEach(key => {
+          const point = data[key]?.[0];
+          if (point) {
+            const value = parseFloat(point.value);
+            const ts = point.ts;
+            const el = document.getElementById(key);
+            if (el) {
+              el.innerText = value;
 
-                // 🎨 Apply cell background color
-                if (value > 90) {
-                  el.style.backgroundColor = "#f44336"; // red
-                  el.style.color = "#fff";
-                } else if (value > 50) {
-                  el.style.backgroundColor = "#ffeb3b"; // yellow
-                  el.style.color = "#000";
-                } else {
-                  el.style.backgroundColor = "";
-                  el.style.color = "";
-                }
+              // 🎨 Color logic
+              if (value > 90) {
+                el.style.backgroundColor = "#f44336"; // red
+                el.style.color = "#fff";
+              } else if (value > 50) {
+                el.style.backgroundColor = "#ffeb3b"; // yellow
+                el.style.color = "#000";
+              } else {
+                el.style.backgroundColor = "";
+                el.style.color = "";
               }
-              if (ts > latestTs) latestTs = ts;
             }
-          });
-          updateTimes[machine] = latestTs;
-        });
-
-        const sorted = Object.entries(updateTimes)
-          .sort((a, b) => b[1] - a[1])
-          .map(([m]) => m);
-
-        reorderColumns(sorted);
-      })
-      .catch(err => {
-        console.error("Telemetry fetch error:", err);
-      });
-    }
-
-    function reorderColumns(order) {
-      const headerRow = document.querySelector("thead tr");
-      const rows = document.querySelectorAll("tbody tr");
-
-      const newHeader = ['<th>Attribute</th>'];
-      const newCols = rows.map(() => []);
-
-      order.forEach(machine => {
-        newHeader.push(`<th id="header-${machine}">Machine ${machine[1]}</th>`);
-      });
-
-      rows.forEach((row, rIdx) => {
-        const attrCell = row.children[0].outerHTML;
-        newCols[rIdx].push(attrCell); // Attribute label
-        order.forEach(machine => {
-          const key = machines[machine][rIdx];
-          const cell = document.getElementById(key);
-          if (cell) {
-            newCols[rIdx].push(`<td id="${key}" style="${cell.getAttribute('style') ?? ''}">${cell.innerText}</td>`);
+            if (ts > latestTs) latestTs = ts;
           }
         });
+        updateTimes[machine] = latestTs;
       });
 
-      headerRow.innerHTML = newHeader.join("");
-      rows.forEach((row, idx) => {
-        row.innerHTML = newCols[idx].join("");
-      });
-    }
+      const sorted = Object.entries(updateTimes)
+        .sort((a, b) => b[1] - a[1])
+        .map(([m]) => m);
 
-    fetchTelemetry();
-    setInterval(fetchTelemetry, 10000);
-  </script>
+      reorderColumns(sorted);
+    })
+    .catch(err => {
+      console.error("Telemetry fetch error:", err);
+    });
+  }
+
+  function reorderColumns(order) {
+    const headerRow = document.querySelector("thead tr");
+    const rows = document.querySelectorAll("tbody tr");
+
+    // Headers
+    const newHeader = ['<th>Attribute</th>'];
+    order.forEach(machine => {
+      newHeader.push(`<th id="header-${machine}">Machine ${machine[1]}</th>`);
+    });
+    headerRow.innerHTML = newHeader.join("");
+
+    // Rows
+    rows.forEach((row, rIdx) => {
+      const labelCell = row.children[0].outerHTML;
+      const newCells = [labelCell];
+      order.forEach(machine => {
+        const key = machines[machine][rIdx];
+        const el = document.getElementById(key);
+        if (el) {
+          const cell = `<td id="${key}" style="${el.getAttribute('style')}">${el.innerText}</td>`;
+          newCells.push(cell);
+        }
+      });
+      row.innerHTML = newCells.join("");
+    });
+  }
+
+  fetchTelemetry();
+  setInterval(fetchTelemetry, 10000);
+</script>
+
 </body>
 </html>
