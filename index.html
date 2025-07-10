@@ -29,13 +29,25 @@
 
   <script>
     window.onload = function () {
+      let retries = 0;
+      const maxRetries = 50; // ~5 seconds if 100ms per attempt
+
       function waitForTokenAndStart() {
         const params = new URLSearchParams(window.location.search);
         const jwt = params.get("token");
+
         if (!jwt) {
+          retries++;
+          if (retries >= maxRetries) {
+            console.error("❌ Token not found after max retries.");
+            return;
+          }
+          console.log(`⏳ Waiting for JWT token... (${retries})`);
           setTimeout(waitForTokenAndStart, 100);
           return;
         }
+
+        console.log("✅ JWT token received. Starting app.");
         startApp(jwt);
       }
 
@@ -97,11 +109,9 @@
               });
             });
 
-            // Sort alarms by newest timestamp
             alarmEntries.sort((a, b) => b.ts - a.ts);
             const activeOrdered = alarmEntries.map(entry => entry.machine);
             const finalOrder = [...activeOrdered, ...inactive];
-
             const alarmValues = Object.fromEntries(alarmEntries.map(a => [a.machine, 1]));
             reorderColumns(finalOrder, alarmValues);
           })
