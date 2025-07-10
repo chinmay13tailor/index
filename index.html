@@ -28,122 +28,131 @@
   </table>
 
   <script>
-    window.onload = function() {
-      const params = new URLSearchParams(window.location.search);
-      const jwt = params.get("token");
-      const deviceId = "1e101ee0-5bd5-11f0-9d02-c191323b4da2";
-      const baseUrl = "https://thingsboard.cloud";
+    window.onload = function () {
+      function waitForTokenAndStart() {
+        const params = new URLSearchParams(window.location.search);
+        const jwt = params.get("token");
+        if (!jwt) {
+          setTimeout(waitForTokenAndStart, 100);
+          return;
+        }
+        startApp(jwt);
+      }
 
-      const machines = {
-        "M1": ["M1_A1", "M1_A2", "M1_A3"],
-        "M2": ["M2_A1", "M2_A2", "M2_A3"],
-        "M3": ["M3_A1", "M3_A2", "M3_A3"]
-      };
+      waitForTokenAndStart();
 
-      const alarms = {
-        "M1": "M1_Alarm",
-        "M2": "M2_Alarm",
-        "M3": "M3_Alarm"
-      };
+      function startApp(jwt) {
+        const deviceId = "1e101ee0-5bd5-11f0-9d02-c191323b4da2";
+        const baseUrl = "https://thingsboard.cloud";
 
-      const bellAcknowledged = {
-        "M1": false,
-        "M2": false,
-        "M3": false
-      };
+        const machines = {
+          "M1": ["M1_A1", "M1_A2", "M1_A3"],
+          "M2": ["M2_A1", "M2_A2", "M2_A3"],
+          "M3": ["M3_A1", "M3_A2", "M3_A3"]
+        };
 
-      function fetchTelemetry() {
-        const keys = [...Object.values(machines).flat(), ...Object.values(alarms)];
-        const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`;
+        const alarms = {
+          "M1": "M1_Alarm",
+          "M2": "M2_Alarm",
+          "M3": "M3_Alarm"
+        };
 
-        fetch(url, {
-          headers: { "X-Authorization": `Bearer ${jwt}` }
-        })
-        .then(res => res.json())
-        .then(data => {
-          const alarmValues = {};
-          const activeAlarms = [];
-          const inactive = [];
+        const bellAcknowledged = {
+          "M1": false,
+          "M2": false,
+          "M3": false
+        };
 
-          // read all alarm values and sort machines
-          ["M1", "M2", "M3"].forEach(machine => {
-            const alarmVal = parseInt(data[alarms[machine]]?.[0]?.value || 0);
-            alarmValues[machine] = alarmVal;
+        function fetchTelemetry() {
+          const keys = [...Object.values(machines).flat(), ...Object.values(alarms)];
+          const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`;
 
-            if (alarmVal === 1) {
-              activeAlarms.push(machine);
-            } else {
-              bellAcknowledged[machine] = false;
-              inactive.push(machine);
+          fetch(url, {
+            headers: { "X-Authorization": `Bearer ${jwt}` }
+          })
+            .then(res => res.json())
+            .then(data => {
+              const alarmValues = {};
+              const activeAlarms = [];
+              const inactive = [];
+
+              ["M1", "M2", "M3"].forEach(machine => {
+                const alarmVal = parseInt(data[alarms[machine]]?.[0]?.value || 0);
+                alarmValues[machine] = alarmVal;
+
+                if (alarmVal === 1) {
+                  activeAlarms.push(machine);
+                } else {
+                  bellAcknowledged[machine] = false;
+                  inactive.push(machine);
+                }
+
+                machines[machine].forEach(key => {
+                  const point = data[key]?.[0];
+                  if (point) {
+                    const el = document.getElementById(key);
+                    if (el) el.innerText = parseFloat(point.value);
+                  }
+                });
+              });
+
+              const finalOrder = [...activeAlarms, ...inactive];
+              reorderColumns(finalOrder, alarmValues);
+            })
+            .catch(err => console.error("Fetch error:", err));
+        }
+
+        function acknowledgeAlert(machine) {
+          bellAcknowledged[machine] = true;
+          fetchTelemetry();
+        }
+
+        function reorderColumns(order, alarmValues) {
+          const headerRow = document.getElementById("header-row");
+          const newHeader = document.createElement("tr");
+          newHeader.id = "header-row";
+          const labelTh = document.createElement("th");
+          labelTh.innerText = "Attribute";
+          newHeader.appendChild(labelTh);
+
+          order.forEach(machine => {
+            const th = document.createElement("th");
+            th.id = `header-${machine}`;
+            th.innerText = `Machine ${machine[1]}`;
+
+            if (alarmValues[machine] === 1 && !bellAcknowledged[machine]) {
+              const bell = document.createElement("span");
+              bell.className = "bell";
+              bell.innerText = "🔔";
+              bell.title = "Click to acknowledge";
+              bell.addEventListener("click", () => acknowledgeAlert(machine));
+              th.appendChild(bell);
             }
 
-            machines[machine].forEach(key => {
-              const point = data[key]?.[0];
-              if (point) {
-                const el = document.getElementById(key);
-                if (el) el.innerText = parseFloat(point.value);
-              }
+            newHeader.appendChild(th);
+          });
+
+          headerRow.replaceWith(newHeader);
+
+          const rows = document.querySelectorAll("tbody tr");
+          rows.forEach((row, i) => {
+            const newRow = document.createElement("tr");
+            newRow.appendChild(row.children[0].cloneNode(true));
+            order.forEach(machine => {
+              const key = machines[machine][i];
+              const cell = document.getElementById(key);
+              const newCell = document.createElement("td");
+              newCell.id = key;
+              newCell.innerText = cell ? cell.innerText : "--";
+              newRow.appendChild(newCell);
             });
+            row.replaceWith(newRow);
           });
+        }
 
-          const finalOrder = [...activeAlarms, ...inactive];
-          reorderColumns(finalOrder, alarmValues);
-        })
-        .catch(err => console.error("Fetch error:", err));
+        fetchTelemetry();
+        setInterval(fetchTelemetry, 10000);
       }
-
-      function acknowledgeAlert(machine) {
-        bellAcknowledged[machine] = true;
-        fetchTelemetry(); // re-render
-      }
-
-      function reorderColumns(order, alarmValues) {
-        // headers
-        const headerRow = document.getElementById("header-row");
-        const newHeader = document.createElement("tr");
-        newHeader.id = "header-row";
-        const labelTh = document.createElement("th");
-        labelTh.innerText = "Attribute";
-        newHeader.appendChild(labelTh);
-
-        order.forEach(machine => {
-          const th = document.createElement("th");
-          th.id = `header-${machine}`;
-          th.innerText = `Machine ${machine[1]}`;
-
-          if (alarmValues[machine] === 1 && !bellAcknowledged[machine]) {
-            const bell = document.createElement("span");
-            bell.className = "bell";
-            bell.innerText = "🔔";
-            bell.title = "Click to acknowledge";
-            bell.addEventListener("click", () => acknowledgeAlert(machine));
-            th.appendChild(bell);
-          }
-
-          newHeader.appendChild(th);
-        });
-
-        headerRow.replaceWith(newHeader);
-
-        // rows
-        const rows = document.querySelectorAll("tbody tr");
-        rows.forEach((row, i) => {
-          const newRow = document.createElement("tr");
-          newRow.appendChild(row.children[0].cloneNode(true));
-          order.forEach(machine => {
-            const key = machines[machine][i];
-            const cell = document.getElementById(key);
-            const newCell = document.createElement("td");
-            newCell.id = key;
-            newCell.innerText = cell ? cell.innerText : "--";
-            newRow.appendChild(newCell);
-          });
-          row.replaceWith(newRow);
-        });
-      }
-
-      fetchTelemetry();
-      setInterval(fetchTelemetry, 10000);
     };
   </script>
 </body>
