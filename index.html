@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Paroty Wise Machine Segregation Based On Alarm</title>
+  <title>Machine Telemetry Table</title>
   <style>
     table { width:100%; border-collapse:collapse; }
     th, td { border:1px solid #ddd; padding:10px; text-align:center; }
@@ -10,7 +10,7 @@
   </style>
 </head>
 <body>
-  <h2>Paroty Wise Machine Segregation Based On Alarm</h2>
+  <h2>Machine Telemetry Table</h2>
   <table>
     <thead>
       <tr id="header-row">
@@ -70,36 +70,42 @@
           fetch(url, {
             headers: { "X-Authorization": `Bearer ${jwt}` }
           })
-            .then(res => res.json())
-            .then(data => {
-              const alarmValues = {};
-              const activeAlarms = [];
-              const inactive = [];
+          .then(res => res.json())
+          .then(data => {
+            const alarmEntries = [];
+            const inactive = [];
 
-              ["M1", "M2", "M3"].forEach(machine => {
-                const alarmVal = parseInt(data[alarms[machine]]?.[0]?.value || 0);
-                alarmValues[machine] = alarmVal;
+            ["M1", "M2", "M3"].forEach(machine => {
+              const alarmKey = alarms[machine];
+              const alarmData = data[alarmKey]?.[0];
+              const alarmVal = parseInt(alarmData?.value || 0);
+              const ts = alarmData?.ts || 0;
 
-                if (alarmVal === 1) {
-                  activeAlarms.push(machine);
-                } else {
-                  bellAcknowledged[machine] = false;
-                  inactive.push(machine);
+              if (alarmVal === 1) {
+                alarmEntries.push({ machine, ts });
+              } else {
+                bellAcknowledged[machine] = false;
+                inactive.push(machine);
+              }
+
+              machines[machine].forEach(key => {
+                const point = data[key]?.[0];
+                if (point) {
+                  const el = document.getElementById(key);
+                  if (el) el.innerText = parseFloat(point.value);
                 }
-
-                machines[machine].forEach(key => {
-                  const point = data[key]?.[0];
-                  if (point) {
-                    const el = document.getElementById(key);
-                    if (el) el.innerText = parseFloat(point.value);
-                  }
-                });
               });
+            });
 
-              const finalOrder = [...activeAlarms, ...inactive];
-              reorderColumns(finalOrder, alarmValues);
-            })
-            .catch(err => console.error("Fetch error:", err));
+            // Sort alarms by newest timestamp
+            alarmEntries.sort((a, b) => b.ts - a.ts);
+            const activeOrdered = alarmEntries.map(entry => entry.machine);
+            const finalOrder = [...activeOrdered, ...inactive];
+
+            const alarmValues = Object.fromEntries(alarmEntries.map(a => [a.machine, 1]));
+            reorderColumns(finalOrder, alarmValues);
+          })
+          .catch(err => console.error("Fetch error:", err));
         }
 
         function acknowledgeAlert(machine) {
