@@ -15,6 +15,11 @@
     th {
       background-color: #f0f0f0;
     }
+    .bell {
+      color: red;
+      cursor: pointer;
+      margin-left: 5px;
+    }
   </style>
 </head>
 <body>
@@ -63,6 +68,18 @@
       "M3": ["M3_A1", "M3_A2", "M3_A3"]
     };
 
+    const alertActive = {
+      "M1": false,
+      "M2": false,
+      "M3": false
+    };
+
+    const alertAcknowledged = {
+      "M1": false,
+      "M2": false,
+      "M3": false
+    };
+
     function fetchTelemetry() {
       const keys = Object.values(machines).flat();
       const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`;
@@ -78,19 +95,23 @@
 
         Object.entries(machines).forEach(([machine, keyList]) => {
           let latestTs = 0;
+          let showAlert = false;
+
           keyList.forEach(key => {
             const point = data[key]?.[0];
             if (point) {
               const value = parseFloat(point.value);
               const ts = point.ts;
               const el = document.getElementById(key);
+
               if (el) {
                 el.innerText = value;
 
-                // 🎨 Apply color
+                // 🎨 Color logic
                 if (value > 90) {
                   el.style.backgroundColor = "#f44336"; // red
                   el.style.color = "#fff";
+                  showAlert = true;
                 } else if (value > 50) {
                   el.style.backgroundColor = "#ffeb3b"; // yellow
                   el.style.color = "#000";
@@ -99,22 +120,48 @@
                   el.style.color = "";
                 }
               }
+
               if (ts > latestTs) latestTs = ts;
             }
           });
+
           updateTimes[machine] = latestTs;
+
+          // 🔔 Alert logic
+          if (showAlert && !alertAcknowledged[machine]) {
+            alertActive[machine] = true;
+          }
+
+          updateHeaderBell(machine);
         });
 
         const sorted = Object.entries(updateTimes)
           .sort((a, b) => b[1] - a[1])
           .map(([m]) => m);
 
-        // ✅ Delay column reordering to fix iframe issues
         setTimeout(() => reorderColumns(sorted), 100);
       })
       .catch(err => {
         console.error("Telemetry fetch error:", err);
       });
+    }
+
+    function updateHeaderBell(machine) {
+      const header = document.getElementById("header-" + machine);
+      if (!header) return;
+
+      const baseText = `Machine ${machine[1]}`;
+      if (alertActive[machine]) {
+        header.innerHTML = `${baseText} <span class="bell" onclick="acknowledgeAlert('${machine}')">🔔</span>`;
+      } else {
+        header.innerHTML = baseText;
+      }
+    }
+
+    function acknowledgeAlert(machine) {
+      alertActive[machine] = false;
+      alertAcknowledged[machine] = true;
+      updateHeaderBell(machine);
     }
 
     function reorderColumns(order) {
@@ -125,7 +172,11 @@
       const newCols = rows.map(() => []);
 
       order.forEach(machine => {
-        newHeader.push(`<th id="header-${machine}">Machine ${machine[1]}</th>`);
+        let headerText = `Machine ${machine[1]}`;
+        if (alertActive[machine]) {
+          headerText += ` <span class="bell" onclick="acknowledgeAlert('${machine}')">🔔</span>`;
+        }
+        newHeader.push(`<th id="header-${machine}">${headerText}</th>`);
       });
 
       rows.forEach((row, rIdx) => {
@@ -135,7 +186,7 @@
           const key = machines[machine][rIdx];
           const el = document.getElementById(key);
           if (el) {
-            const style = el.getAttribute('style') ?? '';
+            const style = el.getAttribute("style") ?? "";
             newCols[rIdx].push(`<td id="${key}" style="${style}">${el.innerText}</td>`);
           }
         });
