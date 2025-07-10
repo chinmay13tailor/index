@@ -56,168 +56,161 @@
   </table>
 
   <script>
-    const params = new URLSearchParams(window.location.search);
-    const jwt = params.get("token");
+    window.onload = function () {
+      const params = new URLSearchParams(window.location.search);
+      const jwt = params.get("token");
 
-    const deviceId = "1e101ee0-5bd5-11f0-9d02-c191323b4da2";
-    const baseUrl = "https://thingsboard.cloud";
+      const deviceId = "1e101ee0-5bd5-11f0-9d02-c191323b4da2";
+      const baseUrl = "https://thingsboard.cloud";
 
-    const machines = {
-      "M1": ["M1_A1", "M1_A2", "M1_A3"],
-      "M2": ["M2_A1", "M2_A2", "M2_A3"],
-      "M3": ["M3_A1", "M3_A2", "M3_A3"]
-    };
+      const machines = {
+        "M1": ["M1_A1", "M1_A2", "M1_A3"],
+        "M2": ["M2_A1", "M2_A2", "M2_A3"],
+        "M3": ["M3_A1", "M3_A2", "M3_A3"]
+      };
 
-    const alertState = {
-      "M1": { active: false, acknowledged: false },
-      "M2": { active: false, acknowledged: false },
-      "M3": { active: false, acknowledged: false }
-    };
+      const alertState = {
+        "M1": { active: false, acknowledged: false },
+        "M2": { active: false, acknowledged: false },
+        "M3": { active: false, acknowledged: false }
+      };
 
-    function fetchTelemetry() {
-      const keys = Object.values(machines).flat();
-      const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`;
+      function fetchTelemetry() {
+        const keys = Object.values(machines).flat();
+        const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`;
 
-      fetch(url, {
-        headers: {
-          "X-Authorization": `Bearer ${jwt}`
-        }
-      })
-      .then(res => res.json())
-      .then(data => {
-        const updateTimes = {};
+        fetch(url, {
+          headers: { "X-Authorization": `Bearer ${jwt}` }
+        })
+          .then(res => res.json())
+          .then(data => {
+            const updateTimes = {};
 
-        Object.entries(machines).forEach(([machine, keyList]) => {
-          let latestTs = 0;
-          let overLimit = false;
+            Object.entries(machines).forEach(([machine, keyList]) => {
+              let latestTs = 0;
+              let overLimit = false;
 
-          keyList.forEach(key => {
-            const point = data[key]?.[0];
-            if (point) {
-              const value = parseFloat(point.value);
-              const ts = point.ts;
-              const el = document.getElementById(key);
+              keyList.forEach(key => {
+                const point = data[key]?.[0];
+                if (point) {
+                  const value = parseFloat(point.value);
+                  const ts = point.ts;
+                  const el = document.getElementById(key);
 
-              if (el) {
-                el.innerText = value;
+                  if (el) {
+                    el.innerText = value;
 
-                // 🎨 Color logic
-                if (value > 90) {
-                  el.style.backgroundColor = "#f44336";
-                  el.style.color = "#fff";
-                  overLimit = true;
-                } else if (value > 50) {
-                  el.style.backgroundColor = "#ffeb3b";
-                  el.style.color = "#000";
-                } else {
-                  el.style.backgroundColor = "";
-                  el.style.color = "";
+                    if (value > 90) {
+                      el.style.backgroundColor = "#f44336";
+                      el.style.color = "#fff";
+                      overLimit = true;
+                    } else if (value > 50) {
+                      el.style.backgroundColor = "#ffeb3b";
+                      el.style.color = "#000";
+                    } else {
+                      el.style.backgroundColor = "";
+                      el.style.color = "";
+                    }
+                  }
+
+                  if (ts > latestTs) latestTs = ts;
                 }
+              });
+
+              if (overLimit) {
+                if (alertState[machine].acknowledged) {
+                  alertState[machine].acknowledged = false;
+                }
+                alertState[machine].active = true;
+              } else {
+                alertState[machine].active = false;
               }
 
-              if (ts > latestTs) latestTs = ts;
-            }
+              updateTimes[machine] = latestTs;
+            });
+
+            const sorted = Object.entries(updateTimes)
+              .sort((a, b) => b[1] - a[1])
+              .map(([m]) => m);
+
+            setTimeout(() => reorderColumns(sorted), 100);
+          })
+          .catch(err => {
+            console.error("Telemetry fetch error:", err);
           });
-
-          // 🔔 Update alert state
-          if (overLimit) {
-            if (alertState[machine].acknowledged) {
-              // Re-trigger if new value over limit
-              alertState[machine].acknowledged = false;
-            }
-            alertState[machine].active = true;
-          } else {
-            alertState[machine].active = false;
-          }
-
-          updateTimes[machine] = latestTs;
-        });
-
-        const sorted = Object.entries(updateTimes)
-          .sort((a, b) => b[1] - a[1])
-          .map(([m]) => m);
-
-        setTimeout(() => reorderColumns(sorted), 100);
-      })
-      .catch(err => {
-        console.error("Telemetry fetch error:", err);
-      });
-    }
-
-    function acknowledgeAlert(machine) {
-      alertState[machine].active = false;
-      alertState[machine].acknowledged = true;
-      updateHeaderBell(machine);
-    }
-
-    function updateHeaderBell(machine) {
-      const th = document.getElementById(`header-${machine}`);
-      if (!th) return;
-
-      th.innerHTML = `Machine ${machine[1]}`;
-      if (alertState[machine].active && !alertState[machine].acknowledged) {
-        const bell = document.createElement("span");
-        bell.className = "bell";
-        bell.innerText = "🔔";
-        bell.title = "Click to acknowledge";
-        bell.onclick = () => acknowledgeAlert(machine);
-        th.appendChild(bell);
       }
-    }
 
-    function reorderColumns(order) {
-      const headerRow = document.getElementById("header-row");
-      const rows = document.querySelectorAll("tbody tr");
+      function acknowledgeAlert(machine) {
+        alertState[machine].active = false;
+        alertState[machine].acknowledged = true;
+        updateHeaderBell(machine);
+      }
 
-      // Headers
-      const newHeader = document.createElement("tr");
-      const labelTh = document.createElement("th");
-      labelTh.innerText = "Attribute";
-      newHeader.appendChild(labelTh);
+      function updateHeaderBell(machine) {
+        const th = document.getElementById(`header-${machine}`);
+        if (!th) return;
 
-      order.forEach(machine => {
-        const th = document.createElement("th");
-        th.id = `header-${machine}`;
-        th.innerText = `Machine ${machine[1]}`;
-
+        th.innerHTML = `Machine ${machine[1]}`;
         if (alertState[machine].active && !alertState[machine].acknowledged) {
           const bell = document.createElement("span");
           bell.className = "bell";
           bell.innerText = "🔔";
           bell.title = "Click to acknowledge";
-          bell.onclick = () => acknowledgeAlert(machine);
+          bell.addEventListener("click", () => acknowledgeAlert(machine));
           th.appendChild(bell);
         }
+      }
 
-        newHeader.appendChild(th);
-      });
+      function reorderColumns(order) {
+        const headerRow = document.getElementById("header-row");
+        const rows = document.querySelectorAll("tbody tr");
 
-      headerRow.replaceWith(newHeader);
-      newHeader.id = "header-row";
-
-      // Rows
-      rows.forEach((row, i) => {
-        const newRow = document.createElement("tr");
-        newRow.appendChild(row.children[0].cloneNode(true)); // attribute label
+        const newHeader = document.createElement("tr");
+        const labelTh = document.createElement("th");
+        labelTh.innerText = "Attribute";
+        newHeader.appendChild(labelTh);
 
         order.forEach(machine => {
-          const key = machines[machine][i];
-          const cell = document.getElementById(key);
-          if (cell) {
-            const newCell = document.createElement("td");
-            newCell.id = key;
-            newCell.innerText = cell.innerText;
-            newCell.setAttribute("style", cell.getAttribute("style") || "");
-            newRow.appendChild(newCell);
+          const th = document.createElement("th");
+          th.id = `header-${machine}`;
+          th.innerText = `Machine ${machine[1]}`;
+
+          if (alertState[machine].active && !alertState[machine].acknowledged) {
+            const bell = document.createElement("span");
+            bell.className = "bell";
+            bell.innerText = "🔔";
+            bell.title = "Click to acknowledge";
+            bell.addEventListener("click", () => acknowledgeAlert(machine));
+            th.appendChild(bell);
           }
+
+          newHeader.appendChild(th);
         });
 
-        row.replaceWith(newRow);
-      });
-    }
+        headerRow.replaceWith(newHeader);
+        newHeader.id = "header-row";
 
-    fetchTelemetry();
-    setInterval(fetchTelemetry, 10000);
+        rows.forEach((row, i) => {
+          const newRow = document.createElement("tr");
+          newRow.appendChild(row.children[0].cloneNode(true));
+          order.forEach(machine => {
+            const key = machines[machine][i];
+            const cell = document.getElementById(key);
+            if (cell) {
+              const newCell = document.createElement("td");
+              newCell.id = key;
+              newCell.innerText = cell.innerText;
+              newCell.setAttribute("style", cell.getAttribute("style") || "");
+              newRow.appendChild(newCell);
+            }
+          });
+          row.replaceWith(newRow);
+        });
+      }
+
+      fetchTelemetry();
+      setInterval(fetchTelemetry, 10000);
+    };
   </script>
 </body>
 </html>
