@@ -26,7 +26,7 @@
   <h2>Machine Telemetry Table</h2>
   <table>
     <thead>
-      <tr>
+      <tr id="header-row">
         <th>Attribute</th>
         <th id="header-M1">Machine 1</th>
         <th id="header-M2">Machine 2</th>
@@ -68,16 +68,10 @@
       "M3": ["M3_A1", "M3_A2", "M3_A3"]
     };
 
-    const alertActive = {
-      "M1": false,
-      "M2": false,
-      "M3": false
-    };
-
-    const alertAcknowledged = {
-      "M1": false,
-      "M2": false,
-      "M3": false
+    const alertState = {
+      "M1": { active: false, acknowledged: false },
+      "M2": { active: false, acknowledged: false },
+      "M3": { active: false, acknowledged: false }
     };
 
     function fetchTelemetry() {
@@ -95,7 +89,7 @@
 
         Object.entries(machines).forEach(([machine, keyList]) => {
           let latestTs = 0;
-          let showAlert = false;
+          let overLimit = false;
 
           keyList.forEach(key => {
             const point = data[key]?.[0];
@@ -109,11 +103,11 @@
 
                 // 🎨 Color logic
                 if (value > 90) {
-                  el.style.backgroundColor = "#f44336"; // red
+                  el.style.backgroundColor = "#f44336";
                   el.style.color = "#fff";
-                  showAlert = true;
+                  overLimit = true;
                 } else if (value > 50) {
-                  el.style.backgroundColor = "#ffeb3b"; // yellow
+                  el.style.backgroundColor = "#ffeb3b";
                   el.style.color = "#000";
                 } else {
                   el.style.backgroundColor = "";
@@ -125,14 +119,18 @@
             }
           });
 
-          updateTimes[machine] = latestTs;
-
-          // 🔔 Alert logic
-          if (showAlert && !alertAcknowledged[machine]) {
-            alertActive[machine] = true;
+          // 🔔 Update alert state
+          if (overLimit) {
+            if (alertState[machine].acknowledged) {
+              // Re-trigger if new value over limit
+              alertState[machine].acknowledged = false;
+            }
+            alertState[machine].active = true;
+          } else {
+            alertState[machine].active = false;
           }
 
-          updateHeaderBell(machine);
+          updateTimes[machine] = latestTs;
         });
 
         const sorted = Object.entries(updateTimes)
@@ -146,55 +144,75 @@
       });
     }
 
-    function updateHeaderBell(machine) {
-      const header = document.getElementById("header-" + machine);
-      if (!header) return;
-
-      const baseText = `Machine ${machine[1]}`;
-      if (alertActive[machine]) {
-        header.innerHTML = `${baseText} <span class="bell" onclick="acknowledgeAlert('${machine}')">🔔</span>`;
-      } else {
-        header.innerHTML = baseText;
-      }
-    }
-
     function acknowledgeAlert(machine) {
-      alertActive[machine] = false;
-      alertAcknowledged[machine] = true;
+      alertState[machine].active = false;
+      alertState[machine].acknowledged = true;
       updateHeaderBell(machine);
     }
 
+    function updateHeaderBell(machine) {
+      const th = document.getElementById(`header-${machine}`);
+      if (!th) return;
+
+      th.innerHTML = `Machine ${machine[1]}`;
+      if (alertState[machine].active && !alertState[machine].acknowledged) {
+        const bell = document.createElement("span");
+        bell.className = "bell";
+        bell.innerText = "🔔";
+        bell.title = "Click to acknowledge";
+        bell.onclick = () => acknowledgeAlert(machine);
+        th.appendChild(bell);
+      }
+    }
+
     function reorderColumns(order) {
-      const headerRow = document.querySelector("thead tr");
+      const headerRow = document.getElementById("header-row");
       const rows = document.querySelectorAll("tbody tr");
 
-      const newHeader = ['<th>Attribute</th>'];
-      const newCols = rows.map(() => []);
+      // Headers
+      const newHeader = document.createElement("tr");
+      const labelTh = document.createElement("th");
+      labelTh.innerText = "Attribute";
+      newHeader.appendChild(labelTh);
 
       order.forEach(machine => {
-        let headerText = `Machine ${machine[1]}`;
-        if (alertActive[machine]) {
-          headerText += ` <span class="bell" onclick="acknowledgeAlert('${machine}')">🔔</span>`;
+        const th = document.createElement("th");
+        th.id = `header-${machine}`;
+        th.innerText = `Machine ${machine[1]}`;
+
+        if (alertState[machine].active && !alertState[machine].acknowledged) {
+          const bell = document.createElement("span");
+          bell.className = "bell";
+          bell.innerText = "🔔";
+          bell.title = "Click to acknowledge";
+          bell.onclick = () => acknowledgeAlert(machine);
+          th.appendChild(bell);
         }
-        newHeader.push(`<th id="header-${machine}">${headerText}</th>`);
+
+        newHeader.appendChild(th);
       });
 
-      rows.forEach((row, rIdx) => {
-        const attrCell = row.children[0].outerHTML;
-        newCols[rIdx].push(attrCell);
+      headerRow.replaceWith(newHeader);
+      newHeader.id = "header-row";
+
+      // Rows
+      rows.forEach((row, i) => {
+        const newRow = document.createElement("tr");
+        newRow.appendChild(row.children[0].cloneNode(true)); // attribute label
+
         order.forEach(machine => {
-          const key = machines[machine][rIdx];
-          const el = document.getElementById(key);
-          if (el) {
-            const style = el.getAttribute("style") ?? "";
-            newCols[rIdx].push(`<td id="${key}" style="${style}">${el.innerText}</td>`);
+          const key = machines[machine][i];
+          const cell = document.getElementById(key);
+          if (cell) {
+            const newCell = document.createElement("td");
+            newCell.id = key;
+            newCell.innerText = cell.innerText;
+            newCell.setAttribute("style", cell.getAttribute("style") || "");
+            newRow.appendChild(newCell);
           }
         });
-      });
 
-      headerRow.innerHTML = newHeader.join("");
-      rows.forEach((row, idx) => {
-        row.innerHTML = newCols[idx].join("");
+        row.replaceWith(newRow);
       });
     }
 
