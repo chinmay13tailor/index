@@ -184,14 +184,14 @@
             row.replaceWith(newRow);
           });
 
-          setTimeout(() => setupHistoryPopup(jwt, deviceId, baseUrl), 100);
+          setTimeout(() => setupAlarmFilteredPopup(jwt, deviceId, baseUrl, alarms), 100);
         }
 
         fetchTelemetry();
         setInterval(fetchTelemetry, 10000);
       }
 
-      function setupHistoryPopup(jwt, deviceId, baseUrl) {
+      function setupAlarmFilteredPopup(jwt, deviceId, baseUrl, alarms) {
         const modal = document.getElementById('trendModal');
         const titleEl = document.getElementById('trendTitle');
         const closeBtn = document.getElementById('closeTrend');
@@ -200,11 +200,14 @@
         document.querySelectorAll("td[id^='M']").forEach(cell => {
           const key = cell.id;
           cell.onclick = () => {
-            titleEl.innerText = `Last 5 Values for ${key}`;
+            const machine = key.split("_")[0]; // e.g., "M1"
+            const alarmKey = alarms[machine];
+
+            titleEl.innerText = `Values for ${key} (when ${alarmKey} = 1)`;
             dataBody.innerHTML = "";
             modal.style.display = 'flex';
 
-            fetchLastValues(key, jwt, deviceId, baseUrl).then(values => {
+            fetchAlarmFilteredValues(key, alarmKey, jwt, deviceId, baseUrl).then(values => {
               values.forEach(({ ts, value }) => {
                 const row = document.createElement("tr");
                 const tsCell = document.createElement("td");
@@ -217,6 +220,15 @@
                 row.appendChild(valCell);
                 dataBody.appendChild(row);
               });
+
+              if (values.length === 0) {
+                const row = document.createElement("tr");
+                const td = document.createElement("td");
+                td.colSpan = 2;
+                td.innerText = "No alarm-active data found.";
+                row.appendChild(td);
+                dataBody.appendChild(row);
+              }
             });
           };
         });
@@ -225,19 +237,29 @@
         modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
       }
 
-      async function fetchLastValues(key, jwt, deviceId, baseUrl) {
+      async function fetchAlarmFilteredValues(key, alarmKey, jwt, deviceId, baseUrl) {
         const now = Date.now();
         const start = new Date().setHours(0, 0, 0, 0);
-        const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${key}&startTs=${start}&endTs=${now}&limit=5&agg=NONE`;
+        const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${key},${alarmKey}&startTs=${start}&endTs=${now}&interval=60000&limit=500&agg=NONE`;
 
         const resp = await fetch(url, {
           headers: { "X-Authorization": `Bearer ${jwt}` }
         });
+
         const json = await resp.json();
-        return (json[key] || []).map(pt => ({
-          ts: pt.ts,
-          value: parseFloat(pt.value)
-        }));
+        const keyData = json[key] || [];
+        const alarmData = json[alarmKey] || [];
+
+        // Align points by timestamp
+        const alarmTimestamps = new Set(
+          alarmData.filter(a => parseInt(a.value) === 1).map(a => a.ts)
+        );
+
+        const filtered = keyData.filter(pt => alarmTimestamps.has(pt.ts))
+          .slice(-5)
+          .map(pt => ({ ts: pt.ts, value: parseFloat(pt.value) }));
+
+        return filtered;
       }
     };
   </script>
