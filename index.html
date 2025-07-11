@@ -32,7 +32,9 @@
 
   <script>
     window.onload = function () {
-      const jwt = window.localStorage.getItem('jwt_token');
+      const params = new URLSearchParams(window.location.search);
+      const jwt = params.get("token");
+
       const deviceId = "1e101ee0-5bd5-11f0-9d02-c191323b4da2";
       const baseUrl = "https://thingsboard.cloud";
 
@@ -41,12 +43,14 @@
         "M2": ["M2_A1", "M2_A2", "M2_A3"],
         "M3": ["M3_A1", "M3_A2", "M3_A3"]
       };
+
       const alarms = {
         "M1": "M1_Alarm",
         "M2": "M2_Alarm",
         "M3": "M3_Alarm"
       };
-      let bellAcknowledged = { M1: false, M2: false, M3: false };
+
+      const bellAcknowledged = { M1: false, M2: false, M3: false };
       const errorBox = document.getElementById("error-box");
 
       function reorderColumns(order, alarmValues) {
@@ -61,10 +65,17 @@
 
           if (alarmValues[machine] && !bellAcknowledged[machine]) {
             const bell = document.createElement("span");
-            bell.className = "bell"; bell.innerText = "🔔"; bell.title = "Click to acknowledge";
-            bell.onclick = e => { e.stopPropagation(); bellAcknowledged[machine] = true; fetchTelemetry(); };
+            bell.className = "bell";
+            bell.innerText = "🔔";
+            bell.title = "Click to acknowledge";
+            bell.onclick = e => {
+              e.stopPropagation();
+              bellAcknowledged[machine] = true;
+              fetchTelemetry();
+            };
             th.appendChild(bell);
           }
+
           newHeader.appendChild(th);
         });
 
@@ -88,32 +99,44 @@
       async function fetchTelemetry() {
         try {
           errorBox.innerText = "";
+
           const keys = [...Object.values(machines).flat(), ...Object.values(alarms)];
           const res = await fetch(`${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`, {
             headers: { "X-Authorization": `Bearer ${jwt}` }
           });
+
           const data = await res.json();
 
-          const alarmEntries = [], inactive = [];
+          const alarmEntries = [];
+          const inactive = [];
+
           for (const m of ["M1", "M2", "M3"]) {
             const alarmKey = alarms[m];
             const alarmVal = parseInt(data[alarmKey]?.[0]?.value || 0);
             const ts = data[alarmKey]?.[0]?.ts || 0;
-            if (alarmVal === 1) alarmEntries.push({ machine: m, ts });
-            else { bellAcknowledged[m] = false; inactive.push(m); }
+
+            if (alarmVal === 1) {
+              alarmEntries.push({ machine: m, ts });
+            } else {
+              bellAcknowledged[m] = false;
+              inactive.push(m);
+            }
 
             machines[m].forEach(k => {
               const el = document.getElementById(k);
-              if (data[k]?.[0] && el) el.innerText = parseFloat(data[k][0].value);
-              else if (el) el.innerText = "--";
+              if (data[k]?.[0] && el) {
+                el.innerText = parseFloat(data[k][0].value);
+              } else if (el) {
+                el.innerText = "--";
+              }
             });
           }
 
           alarmEntries.sort((a, b) => b.ts - a.ts);
           const order = [...alarmEntries.map(a => a.machine), ...inactive];
           const activeMap = Object.fromEntries(alarmEntries.map(a => [a.machine, 1]));
-          reorderColumns(order, activeMap);
 
+          reorderColumns(order, activeMap);
         } catch (err) {
           console.error("Telemetry fetch error:", err);
           errorBox.innerText = "⚠️ Error fetching telemetry data";
