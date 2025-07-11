@@ -3,30 +3,11 @@
 <head>
   <title>Machine Telemetry Table</title>
   <style>
-    table { width:100%; border-collapse:collapse; }
-    th, td { border:1px solid #ddd; padding:10px; text-align:center; cursor:pointer; }
-    th { background:#f0f0f0; }
-    .bell { color:red; cursor:pointer; margin-left:5px; }
-
-    #trendModal {
-      display: none; position: fixed; top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: rgba(0,0,0,0.5);
-      justify-content: center; align-items: center;
-      z-index: 9999;
-    }
-    #trendContent {
-      background: #fff; padding: 20px;
-      border-radius: 4px;
-      width: 80%; max-width: 600px;
-    }
-    #trendTable {
-      width: 100%; border-collapse: collapse; margin-top: 10px;
-    }
-    #trendTable th, #trendTable td {
-      border: 1px solid #ddd; padding: 8px;
-    }
-    #closeTrend { margin-top: 10px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
+    th { background-color: #f0f0f0; }
+    .bell { color: red; cursor: pointer; margin-left: 5px; }
+    #error-box { color: red; margin-top: 10px; text-align: center; }
   </style>
 </head>
 <body>
@@ -47,186 +28,126 @@
     </tbody>
   </table>
 
-  <div id="trendModal">
-    <div id="trendContent">
-      <h3 id="trendTitle"></h3>
-      <table id="trendTable">
-        <thead><tr><th>Timestamp</th><th>Value</th></tr></thead>
-        <tbody id="trendData"></tbody>
-      </table>
-      <button id="closeTrend">Close</button>
-    </div>
-  </div>
+  <div id="error-box"></div>
 
-<script>
-window.onload = function () {
-  const jwt = window.localStorage.getItem('jwt_token');
-  if (!jwt) {
-    console.error("JWT token not found. Are you inside ThingsBoard?");
-    return;
-  }
+  <script>
+    window.onload = function () {
+      const jwt = window.localStorage.getItem('jwt_token');
+      const deviceId = "1e101ee0-5bd5-11f0-9d02-c191323b4da2";
+      const baseUrl = "https://thingsboard.cloud";
 
-  const deviceId = "1e101ee0-5bd5-11f0-9d02-c191323b4da2";
-  const baseUrl = "https://thingsboard.cloud";
-
-  const machines = {
-    "M1": ["M1_A1", "M1_A2", "M1_A3"],
-    "M2": ["M2_A1", "M2_A2", "M2_A3"],
-    "M3": ["M3_A1", "M3_A2", "M3_A3"]
-  };
-
-  const alarms = {
-    "M1": "M1_Alarm",
-    "M2": "M2_Alarm",
-    "M3": "M3_Alarm"
-  };
-
-  const bellAcknowledged = { M1: false, M2: false, M3: false };
-  let alarmCounts = { M1: 0, M2: 0, M3: 0 };
-
-  async function fetchAlarmCounts() {
-    const now = Date.now();
-    const start = new Date().setHours(0, 0, 0, 0);
-    for (const m in alarms) {
-      const alarmKey = alarms[m];
-      const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${alarmKey}&startTs=${start}&endTs=${now}&limit=1000&agg=NONE&interval=10000`;
-      const res = await fetch(url, { headers: { "X-Authorization": `Bearer ${jwt}` } });
-      const json = await res.json();
-      const points = json[alarmKey] || [];
-      let count = 0;
-      for (let i = 1; i < points.length; i++) {
-        if (parseInt(points[i-1].value) === 0 && parseInt(points[i].value) === 1) count++;
-      }
-      alarmCounts[m] = count;
-    }
-  }
-
-  function fetchTelemetry() {
-    const keys = [...Object.values(machines).flat(), ...Object.values(alarms)];
-    fetch(`${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`, {
-      headers: { "X-Authorization": `Bearer ${jwt}` }
-    })
-    .then(res => res.json())
-    .then(async data => {
-      const alarmEntries = [], inactive = [];
-      for (const m of ["M1", "M2", "M3"]) {
-        const alarmKey = alarms[m];
-        const alarmVal = parseInt(data[alarmKey]?.[0]?.value || 0);
-        const ts = data[alarmKey]?.[0]?.ts || 0;
-        if (alarmVal === 1) alarmEntries.push({ machine: m, ts });
-        else {
-          bellAcknowledged[m] = false;
-          inactive.push(m);
-        }
-        machines[m].forEach(k => {
-          const el = document.getElementById(k);
-          if (data[k]?.[0] && el) el.innerText = parseFloat(data[k][0].value);
-        });
-      }
-
-      await fetchAlarmCounts();
-
-      alarmEntries.sort((a, b) => b.ts - a.ts);
-      const order = [...alarmEntries.map(a => a.machine), ...inactive];
-      const activeMap = Object.fromEntries(alarmEntries.map(a => [a.machine, 1]));
-      reorderColumns(order, activeMap);
-    });
-  }
-
-  function acknowledgeAlert(machine) {
-    bellAcknowledged[machine] = true;
-    fetchTelemetry();
-  }
-
-  function reorderColumns(order, alarmValues) {
-    const headerRow = document.getElementById("header-row");
-    const newHeader = document.createElement("tr");
-    newHeader.id = "header-row";
-    newHeader.appendChild(Object.assign(document.createElement("th"), { innerText: "Attribute" }));
-
-    order.forEach(machine => {
-      const th = document.createElement("th");
-      let label = `Machine ${machine[1]}`;
-      if (alarmCounts[machine] > 0) label += ` (No. of Alarms = ${alarmCounts[machine]})`;
-      th.innerText = label;
-
-      if (alarmValues[machine] && !bellAcknowledged[machine]) {
-        const bell = document.createElement("span");
-        bell.className = "bell"; bell.innerText = "🔔"; bell.title = "Click to acknowledge";
-        bell.onclick = e => { e.stopPropagation(); acknowledgeAlert(machine); };
-        th.appendChild(bell);
-      }
-      newHeader.appendChild(th);
-    });
-
-    headerRow.replaceWith(newHeader);
-
-    document.querySelectorAll("tbody tr").forEach((row, i) => {
-      const newRow = document.createElement("tr");
-      newRow.appendChild(row.children[0].cloneNode(true));
-      order.forEach(m => {
-        const id = machines[m][i];
-        const old = document.getElementById(id);
-        const cell = document.createElement("td");
-        cell.id = id;
-        cell.innerText = old?.innerText || "--";
-        newRow.appendChild(cell);
-      });
-      row.replaceWith(newRow);
-    });
-
-    setTimeout(() => setupPopup(jwt, deviceId, baseUrl, alarms), 100);
-  }
-
-  fetchTelemetry();
-  setInterval(fetchTelemetry, 10000);
-
-  function setupPopup(jwt, deviceId, baseUrl, alarms) {
-    const modal = document.getElementById('trendModal');
-    const title = document.getElementById('trendTitle');
-    const dataBody = document.getElementById('trendData');
-    const closeBtn = document.getElementById('closeTrend');
-
-    document.querySelectorAll("td[id^='M']").forEach(cell => {
-      const key = cell.id;
-      cell.onclick = () => {
-        const machine = key.split("_")[0];
-        const alarmKey = alarms[machine];
-        title.innerText = `Values for ${key} (when ${alarmKey} = 1)`;
-        dataBody.innerHTML = "";
-        modal.style.display = 'flex';
-
-        fetchFilteredValues(key, alarmKey, jwt, deviceId, baseUrl).then(values => {
-          dataBody.innerHTML = "";
-          if (values.length > 0) {
-            values.forEach(({ ts, value }) => {
-              const row = document.createElement("tr");
-              row.innerHTML = `<td>${new Date(ts).toLocaleString()}</td><td>${value}</td>`;
-              dataBody.appendChild(row);
-            });
-          } else {
-            const row = document.createElement("tr");
-            row.innerHTML = `<td colspan="2">No alarm-active data found.</td>`;
-            dataBody.appendChild(row);
-          }
-        });
+      const machines = {
+        "M1": ["M1_A1", "M1_A2", "M1_A3"],
+        "M2": ["M2_A1", "M2_A2", "M2_A3"],
+        "M3": ["M3_A1", "M3_A2", "M3_A3"]
       };
-    });
+      const alarms = {
+        "M1": "M1_Alarm",
+        "M2": "M2_Alarm",
+        "M3": "M3_Alarm"
+      };
+      let bellAcknowledged = { M1: false, M2: false, M3: false };
+      let alarmCounts = { M1: 0, M2: 0, M3: 0 };
+      const errorBox = document.getElementById("error-box");
 
-    closeBtn.onclick = () => modal.style.display = 'none';
-    modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
-  }
+      async function fetchAlarmCounts() {
+        const now = Date.now();
+        const start = new Date().setHours(0, 0, 0, 0);
+        for (const m in alarms) {
+          const alarmKey = alarms[m];
+          try {
+            const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${alarmKey}&startTs=${start}&endTs=${now}&limit=1000&agg=NONE&interval=10000`;
+            const res = await fetch(url, { headers: { "X-Authorization": `Bearer ${jwt}` } });
+            const json = await res.json();
+            const points = json[alarmKey] || [];
+            let count = 0;
+            for (let i = 1; i < points.length; i++) {
+              if (parseInt(points[i-1].value) === 0 && parseInt(points[i].value) === 1) count++;
+            }
+            alarmCounts[m] = count;
+          } catch (e) {
+            console.error("Error fetching alarm count for", m, e);
+            errorBox.innerText = "⚠️ Error fetching alarm counts";
+          }
+        }
+      }
 
-  async function fetchFilteredValues(key, alarmKey, jwt, deviceId, baseUrl) {
-    const now = Date.now(), start = new Date().setHours(0, 0, 0, 0);
-    const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${key},${alarmKey}&startTs=${start}&endTs=${now}&interval=60000&limit=500&agg=NONE`;
-    const res = await fetch(url, { headers: { "X-Authorization": `Bearer ${jwt}` } });
-    const json = await res.json();
-    const keyData = json[key] || [], alarmData = json[alarmKey] || [];
-    const activeTS = new Set(alarmData.filter(p => parseInt(p.value) === 1).map(p => p.ts));
-    return keyData.filter(p => activeTS.has(p.ts)).slice(-5).map(p => ({ ts: p.ts, value: parseFloat(p.value) }));
-  }
-};
-</script>
+      function reorderColumns(order, alarmValues) {
+        const headerRow = document.getElementById("header-row");
+        const newHeader = document.createElement("tr");
+        newHeader.id = "header-row";
+        newHeader.appendChild(Object.assign(document.createElement("th"), { innerText: "Attribute" }));
+
+        order.forEach(machine => {
+          const th = document.createElement("th");
+          let label = `Machine ${machine[1]}`;
+          if (alarmCounts[machine] > 0) label += ` (No. of Alarms = ${alarmCounts[machine]})`;
+          th.innerText = label;
+
+          if (alarmValues[machine] && !bellAcknowledged[machine]) {
+            const bell = document.createElement("span");
+            bell.className = "bell"; bell.innerText = "🔔"; bell.title = "Click to acknowledge";
+            bell.onclick = e => { e.stopPropagation(); bellAcknowledged[machine] = true; fetchTelemetry(); };
+            th.appendChild(bell);
+          }
+          newHeader.appendChild(th);
+        });
+
+        headerRow.replaceWith(newHeader);
+
+        document.querySelectorAll("tbody tr").forEach((row, i) => {
+          const newRow = document.createElement("tr");
+          newRow.appendChild(row.children[0].cloneNode(true));
+          order.forEach(m => {
+            const id = machines[m][i];
+            const old = document.getElementById(id);
+            const cell = document.createElement("td");
+            cell.id = id;
+            cell.innerText = old?.innerText || "--";
+            newRow.appendChild(cell);
+          });
+          row.replaceWith(newRow);
+        });
+      }
+
+      async function fetchTelemetry() {
+        try {
+          errorBox.innerText = "";
+          const keys = [...Object.values(machines).flat(), ...Object.values(alarms)];
+          const res = await fetch(`${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`, {
+            headers: { "X-Authorization": `Bearer ${jwt}` }
+          });
+          const data = await res.json();
+
+          const alarmEntries = [], inactive = [];
+          for (const m of ["M1", "M2", "M3"]) {
+            const alarmKey = alarms[m];
+            const alarmVal = parseInt(data[alarmKey]?.[0]?.value || 0);
+            const ts = data[alarmKey]?.[0]?.ts || 0;
+            if (alarmVal === 1) alarmEntries.push({ machine: m, ts });
+            else { bellAcknowledged[m] = false; inactive.push(m); }
+            machines[m].forEach(k => {
+              const el = document.getElementById(k);
+              if (data[k]?.[0] && el) el.innerText = parseFloat(data[k][0].value);
+              else if (el) el.innerText = "--";
+            });
+          }
+
+          await fetchAlarmCounts();
+          alarmEntries.sort((a, b) => b.ts - a.ts);
+          const order = [...alarmEntries.map(a => a.machine), ...inactive];
+          const activeMap = Object.fromEntries(alarmEntries.map(a => [a.machine, 1]));
+          reorderColumns(order, activeMap);
+
+        } catch (err) {
+          console.error("Telemetry fetch error:", err);
+          errorBox.innerText = "⚠️ Error fetching telemetry data";
+        }
+      }
+
+      fetchTelemetry();
+      setInterval(fetchTelemetry, 10000);
+    };
+  </script>
 </body>
 </html>
