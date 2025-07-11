@@ -47,30 +47,7 @@
         "M3": "M3_Alarm"
       };
       let bellAcknowledged = { M1: false, M2: false, M3: false };
-      let alarmCounts = { M1: 0, M2: 0, M3: 0 };
       const errorBox = document.getElementById("error-box");
-
-      async function fetchAlarmCounts() {
-        const now = Date.now();
-        const start = new Date().setHours(0, 0, 0, 0);
-        for (const m in alarms) {
-          const alarmKey = alarms[m];
-          try {
-            const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${alarmKey}&startTs=${start}&endTs=${now}&limit=1000&agg=NONE&interval=10000`;
-            const res = await fetch(url, { headers: { "X-Authorization": `Bearer ${jwt}` } });
-            const json = await res.json();
-            const points = json[alarmKey] || [];
-            let count = 0;
-            for (let i = 1; i < points.length; i++) {
-              if (parseInt(points[i-1].value) === 0 && parseInt(points[i].value) === 1) count++;
-            }
-            alarmCounts[m] = count;
-          } catch (e) {
-            console.error("Error fetching alarm count for", m, e);
-            errorBox.innerText = "⚠️ Error fetching alarm counts";
-          }
-        }
-      }
 
       function reorderColumns(order, alarmValues) {
         const headerRow = document.getElementById("header-row");
@@ -80,9 +57,7 @@
 
         order.forEach(machine => {
           const th = document.createElement("th");
-          let label = `Machine ${machine[1]}`;
-          if (alarmCounts[machine] > 0) label += ` (No. of Alarms = ${alarmCounts[machine]})`;
-          th.innerText = label;
+          th.innerText = `Machine ${machine[1]}`;
 
           if (alarmValues[machine] && !bellAcknowledged[machine]) {
             const bell = document.createElement("span");
@@ -126,6 +101,7 @@
             const ts = data[alarmKey]?.[0]?.ts || 0;
             if (alarmVal === 1) alarmEntries.push({ machine: m, ts });
             else { bellAcknowledged[m] = false; inactive.push(m); }
+
             machines[m].forEach(k => {
               const el = document.getElementById(k);
               if (data[k]?.[0] && el) el.innerText = parseFloat(data[k][0].value);
@@ -133,7 +109,6 @@
             });
           }
 
-          await fetchAlarmCounts();
           alarmEntries.sort((a, b) => b.ts - a.ts);
           const order = [...alarmEntries.map(a => a.machine), ...inactive];
           const activeMap = Object.fromEntries(alarmEntries.map(a => [a.machine, 1]));
