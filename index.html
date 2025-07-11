@@ -204,24 +204,28 @@
             const alarmKey = alarms[machine];
 
             titleEl.innerText = `Values for ${key} (when ${alarmKey} = 1)`;
+
+            // 🧼 Clean old content
             dataBody.innerHTML = "";
+            document.querySelectorAll("#trendContent canvas").forEach(c => c.remove());
+
             modal.style.display = 'flex';
 
             fetchAlarmFilteredValues(key, alarmKey, jwt, deviceId, baseUrl).then(values => {
-              values.forEach(({ ts, value }) => {
-                const row = document.createElement("tr");
-                const tsCell = document.createElement("td");
-                const valCell = document.createElement("td");
+              if (values.length > 0) {
+                values.forEach(({ ts, value }) => {
+                  const row = document.createElement("tr");
+                  const tsCell = document.createElement("td");
+                  const valCell = document.createElement("td");
 
-                tsCell.innerText = new Date(ts).toLocaleString();
-                valCell.innerText = value;
+                  tsCell.innerText = new Date(ts).toLocaleString();
+                  valCell.innerText = value;
 
-                row.appendChild(tsCell);
-                row.appendChild(valCell);
-                dataBody.appendChild(row);
-              });
-
-              if (values.length === 0) {
+                  row.appendChild(tsCell);
+                  row.appendChild(valCell);
+                  dataBody.appendChild(row);
+                });
+              } else {
                 const row = document.createElement("tr");
                 const td = document.createElement("td");
                 td.colSpan = 2;
@@ -250,7 +254,6 @@
         const keyData = json[key] || [];
         const alarmData = json[alarmKey] || [];
 
-        // Align points by timestamp
         const alarmTimestamps = new Set(
           alarmData.filter(a => parseInt(a.value) === 1).map(a => a.ts)
         );
