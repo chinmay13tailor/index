@@ -20,7 +20,12 @@
       border-radius: 4px;
       width: 80%; max-width: 600px;
     }
-    #trendContent canvas { width: 100%; height: 300px; }
+    #trendTable {
+      width: 100%; border-collapse: collapse; margin-top: 10px;
+    }
+    #trendTable th, #trendTable td {
+      border: 1px solid #ddd; padding: 8px;
+    }
     #closeTrend { margin-top: 10px; }
   </style>
 </head>
@@ -45,11 +50,15 @@
   <div id="trendModal">
     <div id="trendContent">
       <h3 id="trendTitle"></h3>
+      <table id="trendTable">
+        <thead>
+          <tr><th>Timestamp</th><th>Value</th></tr>
+        </thead>
+        <tbody id="trendData"></tbody>
+      </table>
       <button id="closeTrend">Close</button>
     </div>
   </div>
-
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <script>
     window.onload = function () {
@@ -175,88 +184,60 @@
             row.replaceWith(newRow);
           });
 
-          setTimeout(() => setupTrendPopup(jwt, deviceId, baseUrl), 100);
+          setTimeout(() => setupHistoryPopup(jwt, deviceId, baseUrl), 100);
         }
 
         fetchTelemetry();
         setInterval(fetchTelemetry, 10000);
       }
 
-      function setupTrendPopup(jwt, deviceId, baseUrl) {
+      function setupHistoryPopup(jwt, deviceId, baseUrl) {
         const modal = document.getElementById('trendModal');
         const titleEl = document.getElementById('trendTitle');
         const closeBtn = document.getElementById('closeTrend');
-        let chart;
+        const dataBody = document.getElementById('trendData');
 
         document.querySelectorAll("td[id^='M']").forEach(cell => {
           const key = cell.id;
-          cell.addEventListener('click', () => {
-            titleEl.innerText = `Trend for ${key}`;
-
-            // Remove old canvas
-            const container = document.getElementById('trendContent');
-            const oldCanvas = document.getElementById('trendChart');
-            if (oldCanvas) oldCanvas.remove();
-
-            // Add new canvas
-            const newCanvas = document.createElement('canvas');
-            newCanvas.id = 'trendChart';
-            container.insertBefore(newCanvas, closeBtn);
-
+          cell.onclick = () => {
+            titleEl.innerText = `Last 5 Values for ${key}`;
+            dataBody.innerHTML = "";
             modal.style.display = 'flex';
 
-            fetchTrendData(key, jwt, deviceId, baseUrl).then(data => {
-              requestAnimationFrame(() => {
-                const chartCanvas = document.getElementById('trendChart');
-                const ctx = chartCanvas?.getContext('2d');
-                if (!ctx) {
-                  console.error("Chart canvas context not found");
-                  return;
-                }
+            fetchLastValues(key, jwt, deviceId, baseUrl).then(values => {
+              values.forEach(({ ts, value }) => {
+                const row = document.createElement("tr");
+                const tsCell = document.createElement("td");
+                const valCell = document.createElement("td");
 
-                if (chart) chart.destroy();
+                tsCell.innerText = new Date(ts).toLocaleString();
+                valCell.innerText = value;
 
-                const times = data.map(pt => new Date(pt.ts));
-                const values = data.map(pt => pt.value);
-
-                chart = new Chart(ctx, {
-                  type: 'line',
-                  data: {
-                    labels: times,
-                    datasets: [{
-                      label: key,
-                      data: values,
-                      borderColor: 'blue',
-                      fill: false,
-                      tension: 0.2
-                    }]
-                  },
-                  options: {
-                    responsive: true,
-                    scales: {
-                      x: { type: 'time', time: { unit: 'minute' } },
-                      y: { beginAtZero: false }
-                    }
-                  }
-                });
+                row.appendChild(tsCell);
+                row.appendChild(valCell);
+                dataBody.appendChild(row);
               });
             });
-          });
+          };
         });
 
         closeBtn.onclick = () => modal.style.display = 'none';
         modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
       }
 
-      async function fetchTrendData(key, jwt, deviceId, baseUrl) {
+      async function fetchLastValues(key, jwt, deviceId, baseUrl) {
         const now = Date.now();
         const start = new Date().setHours(0, 0, 0, 0);
-        const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${key}&startTs=${start}&endTs=${now}&interval=60000&limit=100`;
+        const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${key}&startTs=${start}&endTs=${now}&limit=5&agg=NONE`;
+
         const resp = await fetch(url, {
           headers: { "X-Authorization": `Bearer ${jwt}` }
         });
-        const data = await resp.json();
-        return (data[key] || []).map(pt => ({ ts: pt.ts, value: parseFloat(pt.value) }));
+        const json = await resp.json();
+        return (json[key] || []).map(pt => ({
+          ts: pt.ts,
+          value: parseFloat(pt.value)
+        }));
       }
     };
   </script>
