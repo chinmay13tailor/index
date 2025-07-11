@@ -45,7 +45,6 @@
   <div id="trendModal">
     <div id="trendContent">
       <h3 id="trendTitle"></h3>
-      <canvas id="trendChart"></canvas>
       <button id="closeTrend">Close</button>
     </div>
   </div>
@@ -185,7 +184,6 @@
 
       function setupTrendPopup(jwt, deviceId, baseUrl) {
         const modal = document.getElementById('trendModal');
-        const ctx = document.getElementById('trendChart').getContext('2d');
         const titleEl = document.getElementById('trendTitle');
         const closeBtn = document.getElementById('closeTrend');
         let chart;
@@ -194,15 +192,28 @@
           const key = cell.id;
           cell.addEventListener('click', () => {
             titleEl.innerText = `Trend for ${key}`;
+
+            // Remove old canvas
+            const container = document.getElementById('trendContent');
+            const oldCanvas = document.getElementById('trendChart');
+            if (oldCanvas) oldCanvas.remove();
+
+            // Add new canvas
+            const newCanvas = document.createElement('canvas');
+            newCanvas.id = 'trendChart';
+            container.insertBefore(newCanvas, closeBtn);
+
             modal.style.display = 'flex';
 
             fetchTrendData(key, jwt, deviceId, baseUrl).then(data => {
-              if (chart) chart.destroy();
+              requestAnimationFrame(() => {
+                const ctx = document.getElementById('trendChart')?.getContext('2d');
+                if (!ctx) return;
 
-              const times = data.map(pt => new Date(pt.ts));
-              const values = data.map(pt => pt.value);
+                if (chart) chart.destroy();
+                const times = data.map(pt => new Date(pt.ts));
+                const values = data.map(pt => pt.value);
 
-              setTimeout(() => {
                 chart = new Chart(ctx, {
                   type: 'line',
                   data: {
@@ -223,7 +234,7 @@
                     }
                   }
                 });
-              }, 100);
+              });
             });
           });
         });
