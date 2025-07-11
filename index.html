@@ -8,7 +8,6 @@
     th { background:#f0f0f0; }
     .bell { color:red; cursor:pointer; margin-left:5px; }
 
-    /* Modal for trend chart */
     #trendModal {
       display: none; position: fixed; top: 0; left: 0;
       width: 100%; height: 100%;
@@ -45,7 +44,7 @@
     </tbody>
   </table>
 
-  <!-- Modal for trend chart -->
+  <!-- Modal -->
   <div id="trendModal">
     <div id="trendContent">
       <h3 id="trendTitle"></h3>
@@ -94,13 +93,14 @@
                 }
               });
             });
+
+            // Attach listeners after telemetry is rendered
+            setupTrendPopup(jwt, deviceId, baseUrl);
           });
         }
 
         fetchTelemetry();
         setInterval(fetchTelemetry, 10000);
-
-        setupTrendPopup(jwt, deviceId, baseUrl);
       }
 
       function setupTrendPopup(jwt, deviceId, baseUrl) {
@@ -110,16 +110,23 @@
         const closeBtn = document.getElementById('closeTrend');
         let chart;
 
-        // Add click event to every telemetry <td>
+        // Remove previous listeners
+        document.querySelectorAll("td[id^='M']").forEach(cell => {
+          const newCell = cell.cloneNode(true);
+          cell.parentNode.replaceChild(newCell, cell);
+        });
+
         document.querySelectorAll("td[id^='M']").forEach(cell => {
           cell.addEventListener('click', () => {
-            const key = cell.id; // e.g. M2_A2
+            const key = cell.id;
             titleEl.innerText = `Trend for ${key}`;
             modal.style.display = 'flex';
+
             fetchTrendData(key, jwt, deviceId, baseUrl).then(data => {
+              if (chart) chart.destroy();
               const times = data.map(pt => new Date(pt.ts));
               const values = data.map(pt => pt.value);
-              if (chart) chart.destroy();
+              console.log("Fetched Data:", data);
               chart = new Chart(ctx, {
                 type: 'line',
                 data: {
