@@ -176,8 +176,7 @@
             row.replaceWith(newRow);
           });
 
-          // Re-attach click popup
-          setTimeout(() => setupTrendPopup(jwt, deviceId, baseUrl), 50);
+          setTimeout(() => setupTrendPopup(jwt, deviceId, baseUrl), 100);
         }
 
         fetchTelemetry();
@@ -192,35 +191,39 @@
         let chart;
 
         document.querySelectorAll("td[id^='M']").forEach(cell => {
+          const key = cell.id;
           cell.addEventListener('click', () => {
-            const key = cell.id;
             titleEl.innerText = `Trend for ${key}`;
             modal.style.display = 'flex';
 
             fetchTrendData(key, jwt, deviceId, baseUrl).then(data => {
               if (chart) chart.destroy();
+
               const times = data.map(pt => new Date(pt.ts));
               const values = data.map(pt => pt.value);
-              chart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                  labels: times,
-                  datasets: [{
-                    label: key,
-                    data: values,
-                    borderColor: 'blue',
-                    fill: false,
-                    tension: 0.2
-                  }]
-                },
-                options: {
-                  responsive: true,
-                  scales: {
-                    x: { type: 'time', time: { unit: 'hour' } },
-                    y: { beginAtZero: false }
+
+              setTimeout(() => {
+                chart = new Chart(ctx, {
+                  type: 'line',
+                  data: {
+                    labels: times,
+                    datasets: [{
+                      label: key,
+                      data: values,
+                      borderColor: 'blue',
+                      fill: false,
+                      tension: 0.2
+                    }]
+                  },
+                  options: {
+                    responsive: true,
+                    scales: {
+                      x: { type: 'time', time: { unit: 'minute' } },
+                      y: { beginAtZero: false }
+                    }
                   }
-                }
-              });
+                });
+              }, 100);
             });
           });
         });
