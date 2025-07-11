@@ -51,6 +51,7 @@
       };
 
       const bellAcknowledged = { M1: false, M2: false, M3: false };
+      const alarmCounts = { M1: 0, M2: 0, M3: 0 };
       const errorBox = document.getElementById("error-box");
 
       function reorderColumns(order, alarmValues) {
@@ -61,7 +62,10 @@
 
         order.forEach(machine => {
           const th = document.createElement("th");
-          th.innerText = `Machine ${machine[1]}`;
+          th.id = `header-${machine}`;
+
+          const count = alarmCounts[machine] || 0;
+          th.innerText = `Machine ${machine[1]} (Alarms = ${count})`;
 
           if (alarmValues[machine] && !bellAcknowledged[machine]) {
             const bell = document.createElement("span");
@@ -96,9 +100,39 @@
         });
       }
 
+      async function fetchAlarmCounts() {
+        const now = Date.now();
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const startTs = todayStart.getTime();
+        const endTs = now;
+
+        for (const [mKey, alarmKey] of Object.entries(alarms)) {
+          const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${alarmKey}&startTs=${startTs}&endTs=${endTs}&interval=1000&limit=1000&agg=NONE`;
+
+          try {
+            const res = await fetch(url, {
+              headers: { "X-Authorization": `Bearer ${jwt}` }
+            });
+
+            const data = await res.json();
+            const values = data[alarmKey] || [];
+
+            // Count only where alarm value = 1
+            const count = values.filter(item => parseInt(item.value) === 1).length;
+            alarmCounts[mKey] = count;
+          } catch (err) {
+            console.warn(`Failed to fetch alarm history for ${alarmKey}`);
+            alarmCounts[mKey] = 0;
+          }
+        }
+      }
+
       async function fetchTelemetry() {
         try {
           errorBox.innerText = "";
+
+          await fetchAlarmCounts(); // fetch alarm history
 
           const keys = [...Object.values(machines).flat(), ...Object.values(alarms)];
           const res = await fetch(`${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`, {
