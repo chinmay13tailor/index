@@ -207,10 +207,15 @@
 
             fetchTrendData(key, jwt, deviceId, baseUrl).then(data => {
               requestAnimationFrame(() => {
-                const ctx = document.getElementById('trendChart')?.getContext('2d');
-                if (!ctx) return;
+                const chartCanvas = document.getElementById('trendChart');
+                const ctx = chartCanvas?.getContext('2d');
+                if (!ctx) {
+                  console.error("Chart canvas context not found");
+                  return;
+                }
 
                 if (chart) chart.destroy();
+
                 const times = data.map(pt => new Date(pt.ts));
                 const values = data.map(pt => pt.value);
 
