@@ -204,14 +204,18 @@
             const alarmKey = alarms[machine];
 
             titleEl.innerText = `Values for ${key} (when ${alarmKey} = 1)`;
-
-            // 🧼 Clean old content
             dataBody.innerHTML = "";
-            document.querySelectorAll("#trendContent canvas").forEach(c => c.remove());
+            document.getElementById("trendTable").style.display = "none";
+            setTimeout(() => {
+              document.getElementById("trendTable").style.display = "table";
+            }, 0);
 
             modal.style.display = 'flex';
 
             fetchAlarmFilteredValues(key, alarmKey, jwt, deviceId, baseUrl).then(values => {
+              // Clean old rows
+              while (dataBody.firstChild) dataBody.removeChild(dataBody.firstChild);
+
               if (values.length > 0) {
                 values.forEach(({ ts, value }) => {
                   const row = document.createElement("tr");
