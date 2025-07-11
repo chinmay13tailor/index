@@ -7,11 +7,24 @@
     th, td { border:1px solid #ddd; padding:10px; text-align:center; cursor:pointer; }
     th { background:#f0f0f0; }
     .bell { color:red; cursor:pointer; margin-left:5px; }
-    /* Modal styling */
-    #trendModal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); justify-content:center; align-items:center; }
-    #trendContent { background:#fff; padding:20px; border-radius:4px; width:80%; max-width:600px; }
-    #trendContent canvas { width:100%; height:300px; }
-    #closeTrend { margin-top:10px; }
+
+    /* Modal for trend chart */
+    #trendModal {
+      display: none; position: fixed; top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5);
+      justify-content: center; align-items: center;
+      z-index: 9999;
+    }
+    #trendContent {
+      background: #fff; padding: 20px;
+      border-radius: 4px;
+      width: 80%; max-width: 600px;
+    }
+    #trendContent canvas {
+      width: 100%; height: 300px;
+    }
+    #closeTrend { margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -41,56 +54,111 @@
     </div>
   </div>
 
-  <!-- Load Chart.js from CDN -->
+  <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <script>
     window.onload = function () {
-      // existing token wait logic...
-      // START OF initialize and create functions (omitted for brevity)
-      // calls startApp(jwt) as before
-    };
+      function waitForTokenAndStart() {
+        const params = new URLSearchParams(window.location.search);
+        const jwt = params.get("token");
+        if (!jwt) return setTimeout(waitForTokenAndStart, 100);
+        startApp(jwt);
+      }
 
-    // Inside startApp(jwt):
-    function setupTrendPopup() {
-      const modal = document.getElementById('trendModal');
-      const content = document.getElementById('trendContent');
-      const ctx = document.getElementById('trendChart').getContext('2d');
-      const titleEl = document.getElementById('trendTitle');
-      const closeBtn = document.getElementById('closeTrend');
-      let chart;
+      waitForTokenAndStart();
 
-      document.querySelectorAll('td[id]').forEach(td => {
-        td.addEventListener('click', () => {
-          const key = td.id; // e.g. "M1_A1"
-          titleEl.innerText = `Trend for ${key}`;
-          modal.style.display = 'flex';
-          fetchTrendData(key).then(data => {
-            const times = data.map(pt => new Date(pt.ts));
-            const values = data.map(pt => pt.value);
-            if (chart) chart.destroy();
-            chart = new Chart(ctx, {
-              type: 'line',
-              data: { labels: times, datasets: [{ label: key, data: values, borderColor: 'blue', fill: false }] },
-              options: { scales: { x: { type: 'time', time: { unit: 'hour' } } } }
+      function startApp(jwt) {
+        const deviceId = "1e101ee0-5bd5-11f0-9d02-c191323b4da2";
+        const baseUrl = "https://thingsboard.cloud";
+
+        const machines = {
+          "M1": ["M1_A1", "M1_A2", "M1_A3"],
+          "M2": ["M2_A1", "M2_A2", "M2_A3"],
+          "M3": ["M3_A1", "M3_A2", "M3_A3"]
+        };
+
+        function fetchTelemetry() {
+          const keys = Object.values(machines).flat();
+          fetch(`${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`, {
+            headers: { "X-Authorization": `Bearer ${jwt}` }
+          })
+          .then(res => res.json())
+          .then(data => {
+            Object.entries(machines).forEach(([machine, keyList]) => {
+              keyList.forEach(key => {
+                const point = data[key]?.[0];
+                if (point) {
+                  const el = document.getElementById(key);
+                  if (el) el.innerText = parseFloat(point.value);
+                }
+              });
+            });
+          });
+        }
+
+        fetchTelemetry();
+        setInterval(fetchTelemetry, 10000);
+
+        setupTrendPopup(jwt, deviceId, baseUrl);
+      }
+
+      function setupTrendPopup(jwt, deviceId, baseUrl) {
+        const modal = document.getElementById('trendModal');
+        const ctx = document.getElementById('trendChart').getContext('2d');
+        const titleEl = document.getElementById('trendTitle');
+        const closeBtn = document.getElementById('closeTrend');
+        let chart;
+
+        // Add click event to every telemetry <td>
+        document.querySelectorAll("td[id^='M']").forEach(cell => {
+          cell.addEventListener('click', () => {
+            const key = cell.id; // e.g. M2_A2
+            titleEl.innerText = `Trend for ${key}`;
+            modal.style.display = 'flex';
+            fetchTrendData(key, jwt, deviceId, baseUrl).then(data => {
+              const times = data.map(pt => new Date(pt.ts));
+              const values = data.map(pt => pt.value);
+              if (chart) chart.destroy();
+              chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                  labels: times,
+                  datasets: [{
+                    label: key,
+                    data: values,
+                    borderColor: 'blue',
+                    fill: false,
+                    tension: 0.2
+                  }]
+                },
+                options: {
+                  responsive: true,
+                  scales: {
+                    x: { type: 'time', time: { unit: 'hour' } },
+                    y: { beginAtZero: false }
+                  }
+                }
+              });
             });
           });
         });
-      });
 
-      closeBtn.onclick = modal.onclick = () => { modal.style.display = 'none'; };
-    }
+        closeBtn.onclick = () => modal.style.display = 'none';
+        modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
+      }
 
-    async function fetchTrendData(key) {
-      const now = Date.now();
-      const start = new Date().setHours(0, 0, 0, 0);
-      const resp = await fetch(`${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${key}&startTs=${start}&endTs=${now}&interval=60000`, {
-        headers: { "X-Authorization": `Bearer ${jwt}` }
-      });
-      const data = await resp.json();
-      return (data[key] || []).map(pt => ({ ts: pt.ts, value: parseFloat(pt.value) }));
-    }
-
-    // Call setupTrendPopup() at end of startApp()
+      async function fetchTrendData(key, jwt, deviceId, baseUrl) {
+        const now = Date.now();
+        const start = new Date().setHours(0, 0, 0, 0);
+        const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${key}&startTs=${start}&endTs=${now}&interval=60000&limit=100`;
+        const resp = await fetch(url, {
+          headers: { "X-Authorization": `Bearer ${jwt}` }
+        });
+        const data = await resp.json();
+        return (data[key] || []).map(pt => ({ ts: pt.ts, value: parseFloat(pt.value) }));
+      }
+    };
   </script>
 </body>
 </html>
