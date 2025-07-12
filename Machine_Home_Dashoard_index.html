@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Machine Telemetry Dashboard</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 1rem;
+      background: #f5f5f5;
+    }
+
+    #sort-controls {
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+
+    select {
+      padding: 0.5rem;
+      font-size: 1rem;
+    }
+
+    #card-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      justify-content: center;
+    }
+
+    .machine-card {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.1);
+      padding: 1rem;
+      width: 250px;
+      transition: transform 0.2s ease;
+    }
+
+    .machine-card:hover {
+      transform: translateY(-5px);
+    }
+
+    .machine-title {
+      font-weight: bold;
+      margin-bottom: 0.5rem;
+    }
+
+    .telemetry {
+      margin: 0.25rem 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="sort-controls">
+    <label for="sort-by">Sort By:</label>
+    <select id="sort-by">
+      <option value="Performance">Performance</option>
+      <option value="Availability">Availability</option>
+      <option value="OEE">OEE</option>
+      <option value="Production">Production</option>
+    </select>
+  </div>
+
+  <div id="card-container"></div>
+
+  <script>
+    const machines = [
+      { id: 'Machine1', prefix: 'M1' },
+      { id: 'Machine2', prefix: 'M2' },
+      { id: 'Machine3', prefix: 'M3' }
+    ];
+
+    const telemetryFields = ['Availability', 'Performance', 'OEE', 'Production'];
+    const telemetryData = {};
+
+    const jwt = new URLSearchParams(window.location.search).get('token');
+    const apiBaseUrl = 'https://thingsboard.cloud/api';
+
+    async function fetchTelemetry(machine) {
+      const keys = telemetryFields.map(field => `${machine.prefix}_${field}`).join(',');
+      const response = await fetch(`${apiBaseUrl}/plugins/telemetry/DEVICE/${machine.id}/values/timeseries?keys=${keys}`, {
+        headers: {
+          'X-Authorization': `Bearer ${jwt}`
+        }
+      });
+
+      const data = await response.json();
+      telemetryData[machine.id] = {};
+
+      telemetryFields.forEach(field => {
+        telemetryData[machine.id][field] = parseFloat(data[`${machine.prefix}_${field}`]?.[0]?.value || 0);
+      });
+    }
+
+    function renderCards(sortBy) {
+      const container = document.getElementById('card-container');
+      container.innerHTML = '';
+
+      const sorted = [...machines].sort((a, b) =>
+        telemetryData[b.id][sortBy] - telemetryData[a.id][sortBy]
+      );
+
+      for (const machine of sorted) {
+        const telemetry = telemetryData[machine.id];
+        const card = document.createElement('div');
+        card.className = 'machine-card';
+        card.innerHTML = `
+          <div class="machine-title">${machine.id}</div>
+          <div class="telemetry">Availability: ${telemetry.Availability.toFixed(2)}</div>
+          <div class="telemetry">Performance: ${telemetry.Performance.toFixed(2)}</div>
+          <div class="telemetry">OEE: ${telemetry.OEE.toFixed(2)}</div>
+          <div class="telemetry">Production: ${telemetry.Production.toFixed(2)}</div>
+        `;
+        container.appendChild(card);
+      }
+    }
+
+    async function initializeDashboard() {
+      for (const machine of machines) {
+        await fetchTelemetry(machine);
+      }
+      renderCards(document.getElementById('sort-by').value);
+    }
+
+    document.getElementById('sort-by').addEventListener('change', e => {
+      renderCards(e.target.value);
+    });
+
+    initializeDashboard();
+  </script>
+</body>
+</html>
