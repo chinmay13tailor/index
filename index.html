@@ -176,18 +176,14 @@
         "M3": ["M3_A1", "M3_A2", "M3_A3"]
       };
 
-      // Kept for header text in modal title (not used for logic anymore)
-      const alarms = {
-        "M1": "M1_Alarm",
-        "M2": "M2_Alarm",
-        "M3": "M3_Alarm"
-      };
+      // Kept only for modal title text
+      const alarms = { "M1": "M1_Alarm", "M2": "M2_Alarm", "M3": "M3_Alarm" };
 
       // Thresholds & deadband (A1=Temp, A2=Pressure, A3=Frequency)
       const thresholds = { A1: 60, A2: 35, A3: 50 };
-      const deadband = 2; // points
+      const deadband = 2;
 
-      // Hysteresis per machine/param: track active state
+      // Hysteresis state
       const paramAlarmState = {
         M1: { A1:false, A2:false, A3:false },
         M2: { A1:false, A2:false, A3:false },
@@ -195,13 +191,13 @@
       };
 
       const bellAcknowledged = { M1: false, M2: false, M3: false };
-      const alarmCounts = { M1: 0, M2: 0, M3: 0 }; // number of params currently in alarm
+      const alarmCounts = { M1: 0, M2: 0, M3: 0 }; // current param alarms per machine
 
-      // NEW: shuffling metadata
-      const machineLastActivationTs = { M1: 0, M2: 0, M3: 0 }; // last time a NEW/ADDED alarm occurred
-      const machinePrevActiveCount  = { M1: 0, M2: 0, M3: 0 }; // prev count of params in alarm
+      // Shuffling metadata
+      const machineLastActivationTs = { M1: 0, M2: 0, M3: 0 };
+      const machinePrevActiveCount  = { M1: 0, M2: 0, M3: 0 };
 
-      // NEW: adaptive polling
+      // Adaptive polling
       let pollHandle = null;
       let currentPollMs = 2000; // start fast
       function schedulePolling(ms) {
@@ -210,22 +206,17 @@
         pollHandle = setInterval(fetchTelemetry, ms);
       }
 
+      // NEW: pause updates while modal is open
+      let isModalOpen = false;
+
       function paramIdFromKey(k) {
-        // "M1_A2" -> "A2"
-        const parts = k.split("_");
-        return parts[1];
+        return k.split("_")[1]; // "A1" / "A2" / "A3"
       }
 
-      // Hysteresis logic (deadband)
       function hysteresisUpdate(isActive, value, thr, db) {
         if (!Number.isFinite(value)) return false;
-        if (isActive) {
-          // clear only when value < thr - db
-          return !(value < (thr - db));
-        } else {
-          // trigger when value >= thr
-          return (value >= thr);
-        }
+        if (isActive) return !(value < (thr - db)); // clear only when below thr - db
+        return (value >= thr);                      // trigger when >= thr
       }
 
       function reorderColumns(order, alarmValues) {
@@ -268,27 +259,27 @@
             const cell = document.createElement("td");
             cell.id = id;
             cell.innerText = old?.innerText || "--";
-            // preserve alarm highlight if present on old cell
             if (old && old.classList.contains('alarm')) cell.classList.add('alarm');
             newRow.appendChild(cell);
           });
           row.replaceWith(newRow);
         });
 
-        setupPopup(); // (re-)bind event delegation (idempotent)
+        setupPopup(); // idempotent
       }
 
-      // Keep signature; now a no-op (we compute counts live)
       async function fetchAlarmCounts() {
-        // no historical counts; live counts come from current param alarms
+        // no-op (counts computed live)
       }
 
       async function fetchTelemetry() {
         try {
+          // Pause all updates while modal is open (prevents disappearing)
+          if (isModalOpen) return;
+
           document.getElementById("error-box").innerText = "";
           await fetchAlarmCounts();
 
-          // Only fetch machine keys (no M*_Alarm)
           const keys = [...Object.values(machines).flat()];
           const res = await fetch(`${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${keys.join(",")}`, {
             headers: { "X-Authorization": `Bearer ${jwt}` }
@@ -320,7 +311,7 @@
               if (el) {
                 el.innerText = vText;
 
-                const pid = paramIdFromKey(k); // "A1"/"A2"/"A3"
+                const pid = paramIdFromKey(k);
                 const thr = thresholds[pid];
                 if (thr != null) {
                   const prev = paramAlarmState[m][pid];
@@ -337,40 +328,30 @@
               }
             });
 
-            // Shuffling rules using metadata
             const prevCount = machinePrevActiveCount[m];
-
-            // New machine alarm (0 -> >0) OR additional param (>0 -> larger) bumps to top
             if ((prevCount === 0 && activeParamCount > 0) ||
                 (prevCount > 0 && activeParamCount > prevCount)) {
               machineLastActivationTs[m] = Date.now();
             }
 
-            // Update counters
             machinePrevActiveCount[m] = activeParamCount;
             alarmCounts[m] = activeParamCount;
 
             if (activeParamCount > 0) {
               activeMachines.push(m);
             } else {
-              // when fully clear, allow bell again
               bellAcknowledged[m] = false;
               inactiveMachines.push(m);
             }
           }
 
-          // Sort active machines by most-recent NEW/ADDED alarm first
           activeMachines.sort((a, b) =>
             (machineLastActivationTs[b] - machineLastActivationTs[a]) || a.localeCompare(b)
           );
 
-          // Final order: active first, then cleared
           const order = [...activeMachines, ...inactiveMachines];
-
-          // Header bell visibility map
           const activeMap = Object.fromEntries(activeMachines.map(m => [m, 1]));
 
-          // Adaptive polling: fast when any active, slower when all clear
           const anyActive = activeMachines.length > 0;
           const targetMs = anyActive ? 1000 : 5000;
           if (targetMs !== currentPollMs) schedulePolling(targetMs);
@@ -383,7 +364,7 @@
         }
       }
 
-      // Event delegation popup: last 10 values during alarm (uses same hysteresis)
+      // Event delegation popup: last 10 values during alarm (same hysteresis)
       function setupPopup() {
         const modal = document.getElementById("trendModal");
         const title = document.getElementById("trendTitle");
@@ -404,6 +385,7 @@
             title.innerText = `${key} — last 10 values during alarm`;
             table.innerHTML = "";
             modal.style.display = "flex";
+            isModalOpen = true; // pause updates while open
 
             const now = Date.now();
             const start = new Date().setHours(0, 0, 0, 0);
@@ -414,7 +396,6 @@
               const data = await r.json();
               const vals = (data[key] || []).slice().sort((a,b)=>a.ts - b.ts);
 
-              // Walk series with SAME hysteresis
               let active = false;
               const alarmSamples = [];
               for (const v of vals) {
@@ -443,8 +424,19 @@
           tbody._boundForAlarmPopup = true;
         }
 
-        close.onclick = () => (modal.style.display = "none");
-        modal.onclick = (e) => { if (e.target === modal) modal.style.display = "none"; };
+        close.onclick = () => {
+          document.getElementById("trendModal").style.display = "none";
+          isModalOpen = false;    // resume updates
+          fetchTelemetry();       // refresh once right away
+        };
+
+        document.getElementById("trendModal").onclick = (e) => {
+          if (e.target === document.getElementById("trendModal")) {
+            document.getElementById("trendModal").style.display = "none";
+            isModalOpen = false;  // resume updates
+            fetchTelemetry();     // refresh once right away
+          }
+        };
       }
 
       // initial run + start adaptive polling
