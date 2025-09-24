@@ -261,7 +261,66 @@
           row.replaceWith(newRow);
         });
 
-        setupPopup();
+        function setupPopup() {
+  const modal = document.getElementById("trendModal");
+  const title = document.getElementById("trendTitle");
+  const table = document.getElementById("trendData");
+  const close = document.getElementById("closeTrend");
+
+  document.querySelectorAll("td[id^='M']").forEach(cell => {
+    cell.onclick = async () => {
+      const key = cell.id;            // e.g., "M1_A1"
+      const pid = key.split("_")[1];  // "A1" / "A2" / "A3"
+      const thr = thresholds[pid];
+      const db  = deadband;
+
+      title.innerText = `${key} — last 10 values during alarm`;
+      table.innerHTML = "";
+      modal.style.display = "flex";
+
+      const now = Date.now();
+      const start = new Date().setHours(0, 0, 0, 0);
+      const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${key}&startTs=${start}&endTs=${now}&limit=2000&agg=NONE`;
+
+      try {
+        const r = await fetch(url, { headers: { "X-Authorization": `Bearer ${jwt}` } });
+        const data = await r.json();
+        const vals = (data[key] || []).slice().sort((a,b)=>a.ts-b.ts);
+
+        // Walk the series with the SAME hysteresis logic used on the live table:
+        // - trigger when value >= thr
+        // - clear when value < thr - db
+        let active = false;
+        const alarmSamples = [];
+        for (const v of vals) {
+          const num = Number(v.value);
+          if (!Number.isFinite(num)) continue;
+          const next = hysteresisUpdate(active, num, thr, db);
+          active = next;
+          if (active) alarmSamples.push({ ts: v.ts, value: num });
+        }
+
+        const last10 = alarmSamples.slice(-10).reverse(); // most recent first
+        if (!last10.length) {
+          table.innerHTML = "<tr><td colspan='2'>No alarm data today</td></tr>";
+        } else {
+          last10.forEach(s => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td>${new Date(s.ts).toLocaleString()}</td><td>${s.value}</td>`;
+            table.appendChild(tr);
+          });
+        }
+      } catch (e) {
+        table.innerHTML = "<tr><td colspan='2'>Error loading data</td></tr>";
+        console.error("Trend fetch error:", e);
+      }
+    };
+  });
+
+  close.onclick = () => (modal.style.display = "none");
+  modal.onclick = e => { if (e.target === modal) modal.style.display = "none"; };
+}
+
       }
 
       // We won't compute historical alarm counts now; keep zeros for minimal change.
@@ -405,3 +464,4 @@
   </script>
 </body>
 </html>
+
