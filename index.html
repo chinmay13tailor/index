@@ -261,66 +261,7 @@
           row.replaceWith(newRow);
         });
 
-        function setupPopup() {
-  const modal = document.getElementById("trendModal");
-  const title = document.getElementById("trendTitle");
-  const table = document.getElementById("trendData");
-  const close = document.getElementById("closeTrend");
-
-  document.querySelectorAll("td[id^='M']").forEach(cell => {
-    cell.onclick = async () => {
-      const key = cell.id;            // e.g., "M1_A1"
-      const pid = key.split("_")[1];  // "A1" / "A2" / "A3"
-      const thr = thresholds[pid];
-      const db  = deadband;
-
-      title.innerText = `${key} — last 10 values during alarm`;
-      table.innerHTML = "";
-      modal.style.display = "flex";
-
-      const now = Date.now();
-      const start = new Date().setHours(0, 0, 0, 0);
-      const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${key}&startTs=${start}&endTs=${now}&limit=2000&agg=NONE`;
-
-      try {
-        const r = await fetch(url, { headers: { "X-Authorization": `Bearer ${jwt}` } });
-        const data = await r.json();
-        const vals = (data[key] || []).slice().sort((a,b)=>a.ts-b.ts);
-
-        // Walk the series with the SAME hysteresis logic used on the live table:
-        // - trigger when value >= thr
-        // - clear when value < thr - db
-        let active = false;
-        const alarmSamples = [];
-        for (const v of vals) {
-          const num = Number(v.value);
-          if (!Number.isFinite(num)) continue;
-          const next = hysteresisUpdate(active, num, thr, db);
-          active = next;
-          if (active) alarmSamples.push({ ts: v.ts, value: num });
-        }
-
-        const last10 = alarmSamples.slice(-10).reverse(); // most recent first
-        if (!last10.length) {
-          table.innerHTML = "<tr><td colspan='2'>No alarm data today</td></tr>";
-        } else {
-          last10.forEach(s => {
-            const tr = document.createElement("tr");
-            tr.innerHTML = `<td>${new Date(s.ts).toLocaleString()}</td><td>${s.value}</td>`;
-            table.appendChild(tr);
-          });
-        }
-      } catch (e) {
-        table.innerHTML = "<tr><td colspan='2'>Error loading data</td></tr>";
-        console.error("Trend fetch error:", e);
-      }
-    };
-  });
-
-  close.onclick = () => (modal.style.display = "none");
-  modal.onclick = e => { if (e.target === modal) modal.style.display = "none"; };
-}
-
+        setupPopup();
       }
 
       // We won't compute historical alarm counts now; keep zeros for minimal change.
@@ -410,73 +351,53 @@
         }
       }
 
-function setupPopup() {
-  const modal = document.getElementById("trendModal");
-  const title = document.getElementById("trendTitle");
-  const table = document.getElementById("trendData");
-  const close = document.getElementById("closeTrend");
-  const tbody = document.querySelector("tbody");
+      function setupPopup() {
+        const modal = document.getElementById("trendModal");
+        const title = document.getElementById("trendTitle");
+        const table = document.getElementById("trendData");
+        const close = document.getElementById("closeTrend");
 
-  // Bind once, survive row/column reorders
-  if (!tbody._boundForAlarmPopup) {
-    tbody.addEventListener("click", async (e) => {
-      const cell = e.target.closest('td[id^="M"]');
-      if (!cell) return;
+        document.querySelectorAll("td[id^='M']").forEach(cell => {
+          cell.onclick = () => {
+            const key = cell.id;
+            const machine = key.split("_")[0];
+            const alarmKey = alarms[machine]; // kept for minimal edits (may return no data)
+            title.innerText = `${key} (when ${alarmKey} = 1)`;
+            table.innerHTML = "";
+            modal.style.display = "flex";
 
-      const key = cell.id;            // e.g., "M1_A1"
-      const pid = key.split("_")[1];  // "A1" | "A2" | "A3"
-      const thr = thresholds[pid];
-      const db  = deadband;
+            const now = Date.now();
+            const start = new Date().setHours(0, 0, 0, 0);
+            const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${key},${alarmKey}&startTs=${start}&endTs=${now}&interval=1000&limit=1000&agg=NONE`;
 
-      title.innerText = `${key} — last 10 values during alarm`;
-      table.innerHTML = "";
-      modal.style.display = "flex";
+            fetch(url, { headers: { "X-Authorization": `Bearer ${jwt}` } })
+              .then(r => r.json())
+              .then(data => {
+                const vals = data[key] || [], alarmsArr = data[alarmKey] || [];
+                const activeTimestamps = alarmsArr
+                  .filter(a => parseInt(a.value) === 1)
+                  .map(a => a.ts);
 
-      const now = Date.now();
-      const start = new Date().setHours(0, 0, 0, 0);
-      const url = `${baseUrl}/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${key}&startTs=${start}&endTs=${now}&limit=2000&agg=NONE`;
+                const filtered = vals.filter(v =>
+                  activeTimestamps.some(aTs => Math.abs(aTs - v.ts) <= 5000)
+                ).slice(-5);
 
-      try {
-        const r = await fetch(url, { headers: { "X-Authorization": `Bearer ${jwt}` } });
-        const data = await r.json();
-        const vals = (data[key] || []).slice().sort((a,b)=>a.ts - b.ts);
+                if (filtered.length === 0) {
+                  table.innerHTML = "<tr><td colspan='2'>No data during alarm</td></tr>";
+                } else {
+                  filtered.forEach(v => {
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = `<td>${new Date(v.ts).toLocaleString()}</td><td>${v.value}</td>`;
+                    table.appendChild(tr);
+                  });
+                }
+              });
+          };
+        });
 
-        // Walk series with SAME hysteresis:
-        // - trigger when value >= thr
-        // - clear when value < thr - db
-        let active = false;
-        const alarmSamples = [];
-        for (const v of vals) {
-          const num = Number(v.value);
-          if (!Number.isFinite(num)) continue;
-          const next = hysteresisUpdate(active, num, thr, db);
-          active = next;
-          if (active) alarmSamples.push({ ts: v.ts, value: num });
-        }
-
-        const last10 = alarmSamples.slice(-10).reverse(); // most recent first
-        if (!last10.length) {
-          table.innerHTML = "<tr><td colspan='2'>No alarm data today</td></tr>";
-        } else {
-          const IST = { timeZone: 'Asia/Kolkata' };
-          last10.forEach(s => {
-            const tr = document.createElement("tr");
-            tr.innerHTML = `<td>${new Date(s.ts).toLocaleString('en-IN', IST)}</td><td>${s.value}</td>`;
-            table.appendChild(tr);
-          });
-        }
-      } catch (e2) {
-        console.error("Trend fetch error:", e2);
-        table.innerHTML = "<tr><td colspan='2'>Error loading data</td></tr>";
+        close.onclick = () => modal.style.display = "none";
+        modal.onclick = e => { if (e.target === modal) modal.style.display = "none"; };
       }
-    });
-    tbody._boundForAlarmPopup = true;
-  }
-
-  close.onclick = () => (modal.style.display = "none");
-  modal.onclick = (e) => { if (e.target === modal) modal.style.display = "none"; };
-}
-
 
       fetchTelemetry();
       setInterval(fetchTelemetry, 10000);
@@ -484,5 +405,3 @@ function setupPopup() {
   </script>
 </body>
 </html>
-
-
